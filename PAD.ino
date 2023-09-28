@@ -7,7 +7,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-#define pJoyButt 2  // pin joystick button
+//#define pJoyButt 2  // pin joystick button
 #define pPotX A0    // pin potentiometer X
 #define pPotY A1    // pin joystick X
 #define pJoyX A2    // pin joystick Y
@@ -20,7 +20,7 @@
 // OBIEKTY
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 RF24 radio(7, 8);  // CE, CSN
-const byte addresses[][6] = { "00001", "00002" };
+
 int tempW = 1;
 int tempR = 0;
 
@@ -32,7 +32,6 @@ struct Potentiometer {
 struct Joystick {
   int X;
   int Y;
-  byte Click;
 };  //joy;
 struct Pad {
   Potentiometer pot;
@@ -50,17 +49,17 @@ struct DataToSend{
   byte none_giveFedbackPositon;
 } payload;
 
-int panelNumber;  // numer wyświetlanego panelu
+const byte addresses[][6] = { "00001", "00002" };
 unsigned long now = 0;
-unsigned long delayJoy = 0;
 unsigned long delayButt0 = 0;
 unsigned long delayButt1 = 0;
 unsigned long delayButt2 = 0;
 unsigned long delayButt3 = 0;
-unsigned long delayPrint = 0;
+//unsigned long delayPrint = 0;
 unsigned long timeForDownload = 0;
 unsigned long timeForUpload = 0;
 unsigned long gapInDownload = 0;
+unsigned long gapInFeedback = 0;
 const long minJoy = 0;
 const long maxJoy = 100;
 const long minPot = 0;
@@ -77,7 +76,7 @@ void receiveData();
 
 // PROGRAM
 void setup() {
-  pinMode(pJoyButt, INPUT_PULLUP);
+  //pinMode(pJoyButt, INPUT_PULLUP);
   pinMode(pButt0, INPUT_PULLUP);
   pinMode(pButt1, INPUT_PULLUP);
   pinMode(pButt2, INPUT_PULLUP);
@@ -92,6 +91,8 @@ void setup() {
   radio.openWritingPipe(addresses[1]);     // 00002
   radio.openReadingPipe(1, addresses[0]);  // 00001
   radio.setPALevel(RF24_PA_MIN);
+
+  prepareData();
 }
 
 void loop() {
@@ -139,7 +140,13 @@ void loop() {
     prepareData();
     sendData();
   }
-
+  if(payload.manual_auto == 1 && now - gapInFeedback >= 1000){
+    gapInFeedback = now;
+    payload.none_giveFedbackPositon = 1;
+    sendData();
+    receiveData();
+    payload.none_giveFedbackPositon = 0;
+  }
   //prepareData();
   //sendData();
   //receiveData();
@@ -223,21 +230,16 @@ void prepareData(){
   payload.fi_xTarget = pad.pot.X;
   payload.ro_yTarget = pad.pot.Y;
   payload.strike_start = pad.button[2];
-  payload.load_none = pad.button[3];
+  payload.load_none = pad.button[3];  // nieprawda
   payload.none_giveFedbackPositon = 0;
 }
 void sendData() {
-  //if (now - timeForUpload >= 70) {
-    //timeForUpload = now;
     radio.stopListening();
     radio.write(&payload, sizeof(payload));
-  //}
 }
 void receiveData() {
-  if (now - gapInDownload >= 2000) {
-    gapInDownload = millis();
-    radio.startListening();
     timeForDownload = millis();
+    radio.startListening();
     while (!radio.available()) {
       if ((millis() - timeForDownload) >= 100) {
         break;
@@ -247,5 +249,4 @@ void receiveData() {
       radio.read(&tempR, sizeof(tempR));
       Serial.println(tempR);
     }
-  }
 }

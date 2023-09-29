@@ -82,6 +82,7 @@ void prepareData();
 void sendData();
 void receiveData();
 
+
 // PROGRAM
 void setup() {
   pinMode(pButt0, INPUT_PULLUP);    // podciągania pinów do +5V
@@ -108,58 +109,58 @@ void loop() {
   ifPress(pButt2, delayButt2, 2, 1);
   ifPress(pButt3, delayButt3, 3, 1);
   ifShift();                            // gdy ruszono potencjometrem lub joystickiem
-  giveMeCarPosition();                  // co 1 sekundę otrzymuje pozycję pojazdu
+  giveMeCarPosition();                  // co 0.5 sekundy otrzymuje pozycję pojazdu       |jeśli się będzie bugowało to dać 1 sek|
 }
 
 
 // FUNKCJE
-void ifPress(int pButt, unsigned long & delayButt, byte num, byte cCnum){
-  if ((digitalRead(pButt) == 0) && (now - delayButt >= 500)) {  // wciśnięcie przycisku nr1 -> pButt0 = 0
+void ifPress(int pButt, unsigned long & delayButt, byte num, byte cCnum){ // reaguje na wciśnięcia przycisków
+  if ((digitalRead(pButt) == 0) && (now - delayButt >= 500)) {            // wciśnięcie działa co 0.5 sek
     delayButt = now;
-    pad.button[num] = changeCondition(pad.button[num], cCnum);
-    if (pButt == pButt3 && pad.button[0] == 0 && lastButt == 1 && pad.button[1] == 1){  // gdy włączono M-ładowanie
+    pad.button[num] = changeCondition(pad.button[num], cCnum);  // pad.button[num] = stan (manualny/automat | M-pulpit1/pulpit2 | A-pulpit1/pulpit2)
+    
+    if (pButt == pButt3 && pad.button[0] == 0 && lastButt == 1 && pad.button[1] == 1){  // gdy włączono M-ładowanie 
       payload.load_none = 1;
-      sendData();             // wysyła '1' jako load_none
+      sendData();               // wysyła '1' jako load_none
     }
-    else if (pButt == pButt2){  // gdy włączono M-ładowanie
+    else if (pButt == pButt2){  // gdy włączono M-strzał/A-start
       payload.strike_start = 1;
-      sendData();             // wysyła '1' jako load_none
+      sendData();               // wysyła '1' jako strike_start
     }
-    else{
+    else{                       // jeśli nie wybrano load_none lub strike_start to po prostu wyślij
       prepareData();
       sendData();
     }
     print(num);
-    
   }
 }
-void ifShift(){
+void ifShift(){ // odczytuje ruch joysticka i potencjometrów
   if ((abs(pad.joy.X - map(analogRead(pJoyX), 0, 1023, minJoy, maxJoy)) > 1) || (abs(pad.joy.Y - map(analogRead(pJoyY), 0, 1023, minJoy, maxJoy)) > 1)) {  // obsługa joystick'a
-    pad.joy.X = map(analogRead(pJoyX), 0, 1023, minJoy, maxJoy);
+    pad.joy.X = map(analogRead(pJoyX), 0, 1023, minJoy, maxJoy);  // przechowuje obency stan joysticka
     pad.joy.Y = map(analogRead(pJoyY), 0, 1023, minJoy, maxJoy);
     print(lastButt);
     prepareData();
     sendData();
   }
-  if ((abs(pad.pot.X - map(analogRead(pPotX), 0, 1023, minPot, maxPot)) > 1) || (abs(pad.pot.Y - map(analogRead(pPotY), 0, 1023, minPot, maxPot)) > 1)) {  // obsługa joystick'a
-    pad.pot.X = map(analogRead(pPotX), 0, 1023, minPot, maxPot);
+  if ((abs(pad.pot.X - map(analogRead(pPotX), 0, 1023, minPot, maxPot)) > 1) || (abs(pad.pot.Y - map(analogRead(pPotY), 0, 1023, minPot, maxPot)) > 1)) {  // obsługa potencjometrów
+    pad.pot.X = map(analogRead(pPotX), 0, 1023, minPot, maxPot);  // przechowuje obency stan potencjometrów
     pad.pot.Y = map(analogRead(pPotY), 0, 1023, minPot, maxPot);
     print(lastButt);
     prepareData();
     sendData();
   }
 }
-void giveMeCarPosition(){
-  if(payload.manual_auto == 1 && now - gapInFeedback >= 1000){
+void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia pojazdu
+  if(payload.manual_auto == 1 && now - gapInFeedback >= 500){   // co pół sekundy pobiera info o położeniu pojazdu
     gapInFeedback = now;
     prepareData();
-    payload.none_giveFedbackPositon = 1;
+    payload.none_giveFedbackPositon = 1;  // ustawia na '1' bajt który pojazd interpretuje jako gotowość pada do odbioru dancyh 
     sendData();
     receiveData();
     payload.none_giveFedbackPositon = 0;
   }
 }
-void print(int x) {
+void print(int x) { // wyświetlanie na LCD
   switch (x) {
     case 0:  // przycisk 0 -> wybór trybu manualny/autonomiczny
       lcd.clear();
@@ -221,36 +222,36 @@ void print(int x) {
   }
   lastButt = x;
 }
-byte changeCondition(byte x, int num) {
+byte changeCondition(byte x, int num) { // przełącza tryby np. manualny na auto
   x++;
   if (x == num) {  // num trybów
     x = 0;
   }
   return x;
 }
-void prepareData(){
+void prepareData(){ // tworzy paczkę danych do wysłania
   payload.manual_auto = pad.button[0];
   payload.xJoy_none = pad.joy.X;
   payload.yJoy_none = pad.joy.Y;
   payload.fi_xTarget = pad.pot.X;
   payload.ro_yTarget = pad.pot.Y;
-  payload.strike_start = 0; // w ifPress() może przyjąć '1'
-  payload.load_none = 0;    // w ifPress() może przyjąć '1'
-  payload.none_giveFedbackPositon = 0;
+  payload.strike_start = 0;             // w ifPress() może przyjąć '1'
+  payload.load_none = 0;                // w ifPress() może przyjąć '1'
+  payload.none_giveFedbackPositon = 0;  // w giveMeCarPosition() może przyjąć '1'
 }
-void sendData() {
+void sendData() { // wysyłanie paczki danych
     radio.stopListening();
     radio.write(&payload, sizeof(payload));
 }
-void receiveData() {
+void receiveData() { //odbiór informacji o położeniu pojazdu 
     timeForDownload = millis();
     radio.startListening();
-    while (!radio.available()) {
-      if ((millis() - timeForDownload) >= 100) {
+    while (!radio.available()) {  // czeka aż będzie jakaś wiadomość do odbioru 
+      if ((millis() - timeForDownload) >= 100) {  // ale nie czeka dłużej niż 100 ms
         break;
       }
     }
-    if (radio.available()) {  // jeśli będzie zacinało to tutaj może warto dać while, ale to może opóźnić program
+    if (radio.available()) {  // jeśli jest co odebrać do odbierz |jeśli będzie zacinało to tutaj może warto dać while, ale to może opóźnić program|
       radio.read(&tempR, sizeof(tempR));
       Serial.println(tempR);
     }

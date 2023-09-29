@@ -7,38 +7,38 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
-//#define pJoyButt 2  // pin joystick button
-#define pPotX A0    // pin potentiometer X
-#define pPotY A1    // pin joystick X
-#define pJoyX A2    // pin joystick Y
-#define pJoyY A3    // pin joystick X
+
+// DEFINICJE
+#define pPotX A0    // pin potentiometr X
+#define pPotY A1    // pin potencjometr Y
+#define pJoyX A2    // pin joystick X
+#define pJoyY A3    // pin joystick Y
 #define pButt0 3
 #define pButt1 4
 #define pButt2 5
 #define pButt3 6
 
+
 // OBIEKTY
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 RF24 radio(7, 8);  // CE, CSN
 
-int tempW = 1;
-int tempR = 0;
 
-// ZMIENNE
+// STRUKTURY
 struct Potentiometer {
   int X;
   int Y;
-};  //pot;
+};
 struct Joystick {
   int X;
   int Y;
-};  //joy;
+};
 struct Pad {
-  Potentiometer pot;
-  Joystick joy;
-  byte button[4];  // przyciski
-} pad;
-struct DataToSend{
+  Potentiometer pot;  // potencjometr
+  Joystick joy;       // joystick
+  byte button[4];     // przyciski
+};
+struct DataToSend{    // pakiet wysyłanych danych
   byte manual_auto;
   int xJoy_none;
   int yJoy_none;
@@ -47,27 +47,35 @@ struct DataToSend{
   byte strike_start;
   byte load_none;
   byte none_giveFedbackPositon;
-} payload;
+};
 
+
+// ZMIENNE
+Pad pad;
+DataToSend payload;
 const byte addresses[][6] = { "00001", "00002" };
+const long minJoy = 0;
+const long maxJoy = 100;
+const long minPot = 0;
+const long maxPot = 100;
 unsigned long now = 0;
 unsigned long delayButt0 = 0;
 unsigned long delayButt1 = 0;
 unsigned long delayButt2 = 0;
 unsigned long delayButt3 = 0;
-//unsigned long delayPrint = 0;
 unsigned long timeForDownload = 0;
 unsigned long timeForUpload = 0;
 unsigned long gapInDownload = 0;
 unsigned long gapInFeedback = 0;
-const long minJoy = 0;
-const long maxJoy = 100;
-const long minPot = 0;
-const long maxPot = 100;
 byte lastButt;
+int tempW = 1;
+int tempR = 0;
 
 
 // DEFINICJE FUNKCJI
+void ifPress(int pButt, unsigned long & delayButt, byte num, byte cCnum);
+void ifShift();
+void giveMeCarPosition();
 void print(int x);
 byte changeCondition(byte x, int num);
 void prepareData();
@@ -76,56 +84,56 @@ void receiveData();
 
 // PROGRAM
 void setup() {
-  //pinMode(pJoyButt, INPUT_PULLUP);
-  pinMode(pButt0, INPUT_PULLUP);
+  pinMode(pButt0, INPUT_PULLUP);    // podciągania pinów do +5V
   pinMode(pButt1, INPUT_PULLUP);
   pinMode(pButt2, INPUT_PULLUP);
   pinMode(pButt3, INPUT_PULLUP);
 
-  Serial.begin(9600);
+  Serial.begin(9600);               // rozpoczęcie komunikacji z komputerem
 
-  lcd.init();
+  lcd.init();                       // ustawienia początkowe wyświetlacza
   lcd.backlight();
 
-  radio.begin();
-  radio.openWritingPipe(addresses[1]);     // 00002
-  radio.openReadingPipe(1, addresses[0]);  // 00001
+  radio.begin();                            // ustawienia transmisji bezprzewodowej
+  radio.openWritingPipe(addresses[1]);      // 00002
+  radio.openReadingPipe(1, addresses[0]);   // 00001
   radio.setPALevel(RF24_PA_MIN);
-
-  prepareData();
 }
 
 void loop() {
   now = millis();
 
-  if ((digitalRead(pButt0) == 0) && (now - delayButt0 >= 500)) {  // wciśnięcie przycisku nr1 -> pButt0 = 0
-    delayButt0 = now;
-    pad.button[0] = changeCondition(pad.button[0], 2);  // 2 tryby ->  manualny-0 | automatyczny-1
-    print(0);
-    prepareData();
-    sendData();
+  ifPress(pButt0, delayButt0, 0, 2);    // gdy wciśnięto jakiś przycisk
+  ifPress(pButt1, delayButt1, 1, 2);
+  ifPress(pButt2, delayButt2, 2, 1);
+  ifPress(pButt3, delayButt3, 3, 1);
+  ifShift();                            // gdy ruszono potencjometrem lub joystickiem
+  giveMeCarPosition();                  // co 1 sekundę otrzymuje pozycję pojazdu
+}
+
+
+// FUNKCJE
+void ifPress(int pButt, unsigned long & delayButt, byte num, byte cCnum){
+  if ((digitalRead(pButt) == 0) && (now - delayButt >= 500)) {  // wciśnięcie przycisku nr1 -> pButt0 = 0
+    delayButt = now;
+    pad.button[num] = changeCondition(pad.button[num], cCnum);
+    if (pButt == pButt3 && pad.button[0] == 0 && lastButt == 1 && pad.button[1] == 1){  // gdy włączono M-ładowanie
+      payload.load_none = 1;
+      sendData();             // wysyła '1' jako load_none
+    }
+    else if (pButt == pButt2){  // gdy włączono M-ładowanie
+      payload.strike_start = 1;
+      sendData();             // wysyła '1' jako load_none
+    }
+    else{
+      prepareData();
+      sendData();
+    }
+    print(num);
+    
   }
-  if ((digitalRead(pButt1) == 0) && (now - delayButt1 >= 500)) {  // wciśnięcie przycisku nr2 -> pButt1 = 0
-    delayButt1 = now;
-    pad.button[1] = changeCondition(pad.button[1], 2);  // menu dla trybów auto i manual
-    print(1);
-    prepareData();
-    sendData();
-  }
-  if ((digitalRead(pButt2) == 0) && (now - delayButt2 >= 500)) {  // wciśnięcie przycisku nr3 -> pButt2 = 0
-    delayButt2 = now;
-    pad.button[2] = changeCondition(pad.button[2], 1);  // strzał/start
-    print(2);
-    prepareData();
-    sendData();
-  }
-  if ((digitalRead(pButt3) == 0) && (now - delayButt3 >= 500)) {  // wciśnięcie przycisku nr4 -> pButt3 = 0
-    delayButt3 = now;
-    pad.button[3] = changeCondition(pad.button[3], 1);  // potwierdzenie (załadowania kulki)
-    print(3);
-    prepareData();
-    sendData();
-  }
+}
+void ifShift(){
   if ((abs(pad.joy.X - map(analogRead(pJoyX), 0, 1023, minJoy, maxJoy)) > 1) || (abs(pad.joy.Y - map(analogRead(pJoyY), 0, 1023, minJoy, maxJoy)) > 1)) {  // obsługa joystick'a
     pad.joy.X = map(analogRead(pJoyX), 0, 1023, minJoy, maxJoy);
     pad.joy.Y = map(analogRead(pJoyY), 0, 1023, minJoy, maxJoy);
@@ -140,23 +148,20 @@ void loop() {
     prepareData();
     sendData();
   }
+}
+void giveMeCarPosition(){
   if(payload.manual_auto == 1 && now - gapInFeedback >= 1000){
     gapInFeedback = now;
+    prepareData();
     payload.none_giveFedbackPositon = 1;
     sendData();
     receiveData();
     payload.none_giveFedbackPositon = 0;
   }
-  //prepareData();
-  //sendData();
-  //receiveData();
 }
-
-
-// FUNKCJE
 void print(int x) {
   switch (x) {
-    case 0:  // przycisk 1 -> wybór trybu manualny/autonomiczny
+    case 0:  // przycisk 0 -> wybór trybu manualny/autonomiczny
       lcd.clear();
       lcd.setCursor(0, 0);
       if (pad.button[0] == 0)
@@ -164,7 +169,7 @@ void print(int x) {
       else
         lcd.print("Automatyczny");
       break;
-    case 1:  // przycisk 2
+    case 1:  // przycisk 1 -> menu 
       lcd.clear();
       if (pad.button[0] == 0) {  // dla trybu manulanego
         if (pad.button[1] == 0) {
@@ -180,7 +185,7 @@ void print(int x) {
           lcd.setCursor(0, 1);
           lcd.print("(potwierdz)");
         }
-      } else {  // dla trybu autonomicznego
+      } else {                  // dla trybu autonomicznego
         if (pad.button[1] == 0) {
           lcd.setCursor(0, 0);
           lcd.print("Polozenie celu");
@@ -194,7 +199,7 @@ void print(int x) {
         }
       }
       break;
-    case 2:
+    case 2:   // przycisk 2 -> strzał lub start
       lcd.clear();
       if (pad.button[0] == 0) {
         lcd.setCursor(0, 0);
@@ -204,7 +209,7 @@ void print(int x) {
         lcd.print("Start");
       }
       break;
-    case 3:
+    case 3:   // przycisk 3 -> potwierdzanie (jeśli wymagane) [wymagane w M-ładowanie]
       if (pad.button[0] == 0 && lastButt == 1) {
         if (pad.button[1] == 1) {
           lcd.clear();
@@ -229,8 +234,8 @@ void prepareData(){
   payload.yJoy_none = pad.joy.Y;
   payload.fi_xTarget = pad.pot.X;
   payload.ro_yTarget = pad.pot.Y;
-  payload.strike_start = pad.button[2];
-  payload.load_none = pad.button[3];  // nieprawda
+  payload.strike_start = 0; // w ifPress() może przyjąć '1'
+  payload.load_none = 0;    // w ifPress() może przyjąć '1'
   payload.none_giveFedbackPositon = 0;
 }
 void sendData() {

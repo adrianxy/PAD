@@ -150,7 +150,7 @@ void ifShift(){ // odczytuje ruch joysticka i potencjometrów
     sendData();
   }
 }
-void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia pojazdu
+void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia pojazdu (tylko w automacie)
   if(payload.manual_auto == 1 && now - gapInFeedback >= 500){   // co pół sekundy pobiera info o położeniu pojazdu
     gapInFeedback = now;
     prepareData();

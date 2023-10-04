@@ -9,11 +9,11 @@
 #define pTrig 3
 #define pEcho 2
 
-RF24 radio(7, 8); // CE, CSN
+RF24 radio(7, 8);  // CE, CSN
 
 const int i2c_addr = 0x68;
 
-struct DataToSend{
+struct DataToSend {
   byte manual_auto;
   int xJoy_none;
   int yJoy_none;
@@ -22,16 +22,23 @@ struct DataToSend{
   byte strike_start;
   byte load_none;
   byte none_giveFedbackPositon;
-} payload;
+};
+
+struct Motors {
+  long motorDC1;
+  long motorDC2; 
+};
 
 
-const byte addresses[][6] = {"00001", "00002"};
+DataToSend payload;
+Motors motors;
+const byte addresses[][6] = { "00001", "00002" };
 int tempW = 1;
 int tempR = 0;
-int gx, gy, gz;         // raw gyro values
-int ax, ay, az;         // raw gyro values
-float gX, gY, gZ;         // raw gyro values
-long aX, aY, aZ;         // raw gyro values
+int gx, gy, gz;    // raw gyro values
+int ax, ay, az;    // raw gyro values
+float gX, gY, gZ;  // raw gyro values
+long aX, aY, aZ;   // raw gyro values
 unsigned long timeForUpload = 0;
 unsigned long gapInFeedback = 0;
 //bool cant strike = false;
@@ -57,8 +64,8 @@ void setup() {
 
   Serial.begin(9600);
   radio.begin();
-  radio.openWritingPipe(addresses[0]); // 00001
-  radio.openReadingPipe(1, addresses[1]); // 00002
+  radio.openWritingPipe(addresses[0]);     // 00001
+  radio.openReadingPipe(1, addresses[1]);  // 00002
   radio.setPALevel(RF24_PA_MIN);
 
   BMI160.begin(BMI160GenClass::I2C_MODE, i2c_addr);
@@ -66,20 +73,33 @@ void setup() {
 
 void loop() {
   receiveData();
-  if(payload.strike_start == 1){obrot = 0;}
-  getAccGyro();
+  //if(payload.strike_start == 1){obrot = 0;}
+  //getAccGyro();
   action();
+  //Serial.println(map(payload.yJoy_none, 0, 100, -10, 10));
+  /*Serial.print("joy:");
+  Serial.print("\t");
+  Serial.print("\t");
+  Serial.print(payload.xJoy_none);
+  Serial.print("\t");
+  Serial.print(payload.yJoy_none);
+  Serial.print("\t");
+  Serial.print("\t");
+  Serial.print(payload.fi_xTarget);
+  Serial.print("\t");
+  Serial.print(payload.ro_yTarget);
+  Serial.println();*/
 }
 
-void receiveData(){
+void receiveData() {
   radio.startListening();
-    while (radio.available()) {   // if też działał
-      radio.read(&payload, sizeof(payload)); //..read jak przeczyta to ustawia .available na false
-      Serial.println(payload.strike_start);
-      //Serial.println(tempR);
-    }
+  while (radio.available()) {               // if też działał
+    radio.read(&payload, sizeof(payload));  //..read jak przeczyta to ustawia .available na false
+    Serial.println(payload.strike_start);
+    //Serial.println(tempR);
+  }
 }
-void getAccGyro(){
+void getAccGyro() {
   /*//delay(10);
   long gz2;
   gz2 = gz;
@@ -130,21 +150,19 @@ void getAccGyro(){
   time = millis() - mes;
   mes = millis();
   BMI160.readGyro(gx, gy, gz);
-  if(abs(map(gz, -32768, 32768, -250, 250)) > 3){
+  if (abs(map(gz, -32768, 32768, -250, 250)) > 3) {
     gz = map(gz, -32768, 32768, -250, 250);
-  }
-  else{
+  } else {
     gz = 0;
   }
-  if(i < 5){
+  if (i < 5) {
     gzSum = gzSum + gz;
     timeSum = timeSum + time;
     i++;
-  }
-  else{
-    gzSum = gzSum/5;
+  } else {
+    gzSum = gzSum / 5;
     float gz1 = gzSum;
-    gz1 = gz1/1000;
+    gz1 = gz1 / 1000;
     obrot = obrot + timeSum * gz1;
     gzSum = 0;
     timeSum = 0;
@@ -167,45 +185,65 @@ void getAccGyro(){
     Serial.print("\t");
     Serial.print(az);
     Serial.println();
-  }  
+  }
 }
-void sendData(){
+void sendData() {
   radio.stopListening();
   radio.write(&tempW, sizeof(tempW));
   Serial.println(tempW);
   tempW++;
 }
-void action(){
-  if(payload.manual_auto == 0){ // manualny
+void action() {
+  if (payload.manual_auto == 0) {  // manualny
     moveCar();
     moveRifle();
-    if(payload.strike_start == 1){
+    if (payload.strike_start == 1) {
       // rozpocznij proceduję strzału
     }
-    if(payload.load_none == 1){
+    if (payload.load_none == 1) {
       // rozpocznij precedurę załadunku
     }
-  }
-  else{ // automatyczny
-    if(payload.strike_start == 1 || startFlag){
-      trackToTarget(); 
-
+  } else {  // automatyczny
+    if (payload.strike_start == 1 || startFlag) {
+      trackToTarget();
     }
-    if(payload.none_giveFedbackPositon == 1){
+    if (payload.none_giveFedbackPositon == 1) {
       //delay(50);
-      if(millis() - gapInFeedback >= 500){
+      if (millis() - gapInFeedback >= 500) {
         gapInFeedback = millis();
         sendData();
       }
     }
   }
 }
-void moveCar(){
-
+void moveCar() {
+  if (payload.xJoy_none >= 0 && payload.yJoy_none >= 0) {
+    motors.motorDC1 = max(payload.xJoy_none, payload.yJoy_none);
+    motors.motorDC2 = map(payload.xJoy_none, 0, 20, motors.motorDC1, -motors.motorDC1);
+    if (payload.yJoy_none == 0) { motors.motorDC2 = -motors.motorDC1; }
+  } else if (payload.xJoy_none <= 0 && payload.yJoy_none >= 0) {
+    motors.motorDC2 = max(abs(payload.xJoy_none), payload.yJoy_none);
+    motors.motorDC1 = map(payload.xJoy_none, 0, -20, motors.motorDC2, -motors.motorDC2);
+    if (payload.yJoy_none == 0) { motors.motorDC1 = -motors.motorDC2; }
+  } else if (payload.xJoy_none <= 0 && payload.yJoy_none <= 0) {
+    motors.motorDC2 = min(payload.xJoy_none, payload.yJoy_none);
+    motors.motorDC1 = map(payload.xJoy_none, 0, -20, motors.motorDC2, -motors.motorDC2);
+    if (payload.yJoy_none == 0) { motors.motorDC1 = motors.motorDC2; }
+  } else {
+    motors.motorDC1 = min(-payload.xJoy_none, payload.yJoy_none);
+    motors.motorDC2 = map(payload.xJoy_none, 0, 20, motors.motorDC1, -motors.motorDC1);
+    if (payload.yJoy_none == 0) { motors.motorDC2 = motors.motorDC1; }
+  }
+  
+  Serial.print("joy:");
+  Serial.print("\t");
+  Serial.print("\t");
+  Serial.print(motors.motorDC1);
+  Serial.print("\t");
+  Serial.print(motors.motorDC2);
+  Serial.println();
 }
-void moveRifle(){
-
+void moveRifle() {
 }
-void trackToTarget(){
-
+void trackToTarget() {
 }

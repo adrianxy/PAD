@@ -135,16 +135,16 @@ void ifPress(int pButt, unsigned long & delayButt, byte num, byte cCnum){ // rea
   }
 }
 void ifShift(){ // odczytuje ruch joysticka i potencjometrów
-  if ((abs(pad.joy.X - map(analogRead(pJoyX), 0, 1023, minJoy, maxJoy)) > 1) || (abs(pad.joy.Y - map(analogRead(pJoyY), 0, 1023, minJoy, maxJoy)) > 1)) {  // obsługa joystick'a
-    pad.joy.X = map(analogRead(pJoyX), 0, 1023, minJoy, maxJoy);  // przechowuje obency stan joysticka
-    pad.joy.Y = map(analogRead(pJoyY), 0, 1023, minJoy, maxJoy);
+  if ((abs(pad.joy.X - analogRead(pJoyX)) > 20) || (abs(pad.joy.Y - analogRead(pJoyY)) > 20)) {  // obsługa joystick'a
+    pad.joy.X = analogRead(pJoyX);  // przechowuje obency stan potencjometrów
+    pad.joy.Y = analogRead(pJoyY);
     print(lastButt);
     prepareData();
     sendData();
   }
-  if ((abs(pad.pot.X - map(analogRead(pPotX), 0, 1023, minPot, maxPot)) > 1) || (abs(pad.pot.Y - map(analogRead(pPotY), 0, 1023, minPot, maxPot)) > 1)) {  // obsługa potencjometrów
-    pad.pot.X = map(analogRead(pPotX), 0, 1023, minPot, maxPot);  // przechowuje obency stan potencjometrów
-    pad.pot.Y = map(analogRead(pPotY), 0, 1023, minPot, maxPot);
+  if ((abs(pad.pot.X - analogRead(pPotX)) > 20) || (abs(pad.pot.Y - analogRead(pPotY)) > 20)) {  // obsługa potencjometrów
+    pad.pot.X = analogRead(pPotX);  // przechowuje obency stan potencjometrów
+    pad.pot.Y = analogRead(pPotY);
     print(lastButt);
     prepareData();
     sendData();
@@ -231,10 +231,16 @@ byte changeCondition(byte x, int num) { // przełącza tryby np. manualny na aut
 }
 void prepareData(){ // tworzy paczkę danych do wysłania
   payload.manual_auto = pad.button[0];
-  payload.xJoy_none = pad.joy.X;
-  payload.yJoy_none = pad.joy.Y;
-  payload.fi_xTarget = pad.pot.X;
-  payload.ro_yTarget = pad.pot.Y;
+  payload.xJoy_none = map(pad.joy.X, 0, 1023, -20, 21); // prędkości pojazdu x,y
+  payload.yJoy_none = map(pad.joy.Y, 0, 1023, 20, -21);
+  if (payload.manual_auto == 0){
+    payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
+    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 180);
+  }
+  else{
+    payload.fi_xTarget = map(pad.pot.X, 0, 1023, -30, 30);  // położenie celu w [dm]
+    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, -30, 30);
+  }
   payload.strike_start = 0;             // w ifPress() może przyjąć '1'
   payload.load_none = 0;                // w ifPress() może przyjąć '1'
   payload.none_giveFedbackPositon = 0;  // w giveMeCarPosition() może przyjąć '1'
@@ -242,6 +248,11 @@ void prepareData(){ // tworzy paczkę danych do wysłania
 void sendData() { // wysyłanie paczki danych
     radio.stopListening();
     radio.write(&payload, sizeof(payload));
+    
+    Serial.print(payload.xJoy_none);
+    Serial.print("\t");
+    Serial.print(payload.yJoy_none);
+    Serial.println("\t");
 }
 void receiveData() { //odbiór informacji o położeniu pojazdu 
     timeForDownload = millis();

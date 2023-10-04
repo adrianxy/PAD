@@ -1,9 +1,17 @@
+#include <BMI160.h>
+#include <BMI160Gen.h>
+#include <CurieIMU.h>
+
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
 
+#define pTrig 3
+#define pEcho 2
 
 RF24 radio(7, 8); // CE, CSN
+
+const int i2c_addr = 0x68;
 
 struct DataToSend{
   byte manual_auto;
@@ -20,28 +28,47 @@ struct DataToSend{
 const byte addresses[][6] = {"00001", "00002"};
 int tempW = 1;
 int tempR = 0;
+int gx, gy, gz;         // raw gyro values
+int ax, ay, az;         // raw gyro values
+float gX, gY, gZ;         // raw gyro values
+long aX, aY, aZ;         // raw gyro values
 unsigned long timeForUpload = 0;
 unsigned long gapInFeedback = 0;
 //bool cant strike = false;
 bool startFlag = false;
 
+float obrot = 0;
+unsigned long mes = 0;
+unsigned long time = 0;
+int i = 0;
+int gzSum = 0;
+int timeSum = 0;
+
 void receiveData();
 void sendData();
+void getAccGyro();
 void action();
 void moveCar();
 void moveRifle();
 
 void setup() {
+  pinMode(pTrig, OUTPUT);
+  pinMode(pEcho, INPUT);
+
   Serial.begin(9600);
   radio.begin();
   radio.openWritingPipe(addresses[0]); // 00001
   radio.openReadingPipe(1, addresses[1]); // 00002
   radio.setPALevel(RF24_PA_MIN);
+
+  BMI160.begin(BMI160GenClass::I2C_MODE, i2c_addr);
 }
 
 void loop() {
-      receiveData();
-      action();
+  receiveData();
+  if(payload.strike_start == 1){obrot = 0;}
+  getAccGyro();
+  action();
 }
 
 void receiveData(){
@@ -51,6 +78,96 @@ void receiveData(){
       Serial.println(payload.strike_start);
       //Serial.println(tempR);
     }
+}
+void getAccGyro(){
+  /*//delay(10);
+  long gz2;
+  gz2 = gz;
+  time = millis() - mes;
+  mes = millis();
+  BMI160.readGyro(gx, gy, gz);
+  BMI160.readAccelerometer(ax, ay, az);
+  
+  
+  ax = map(ax, -32768, 32768, -19600, 19600);
+  ay = map(ay, -32768, 32768, -19600, 19600);
+  az = map(az, -32768, 32768, -19600, 19600);
+  gx = map(gx, -32768, 32768, -125, 125);
+  gy = map(gy, -32768, 32768, -125, 125);
+  
+  if(abs(gz2 - map(gz, -32768, 32768, -250, 250)) > 2){
+    gz = map(gz, -32768, 32768, -250, 250);
+  }
+  else{
+    gz = 0;
+  }
+  
+  float gz1 = gz;
+  gz1 = gz1/1000;
+  obrot = obrot + time * gz1;
+  Serial.print("obrot:");
+  Serial.print(obrot);
+  Serial.print("\t");
+
+  Serial.print("g:\t");
+  Serial.print(gx);
+  Serial.print("\t");
+  Serial.print(gy);
+  Serial.print("\t");
+  Serial.print(gz);
+  Serial.print("\t");
+  Serial.print("\t");
+  Serial.print(ax);
+  Serial.print("\t");
+  Serial.print(ay);
+  Serial.print("\t");
+  Serial.print(az);
+  Serial.println();
+  */
+
+  long gz2;
+  gz2 = gz;
+  time = millis() - mes;
+  mes = millis();
+  BMI160.readGyro(gx, gy, gz);
+  if(abs(map(gz, -32768, 32768, -250, 250)) > 3){
+    gz = map(gz, -32768, 32768, -250, 250);
+  }
+  else{
+    gz = 0;
+  }
+  if(i < 5){
+    gzSum = gzSum + gz;
+    timeSum = timeSum + time;
+    i++;
+  }
+  else{
+    gzSum = gzSum/5;
+    float gz1 = gzSum;
+    gz1 = gz1/1000;
+    obrot = obrot + timeSum * gz1;
+    gzSum = 0;
+    timeSum = 0;
+    i = 0;
+    Serial.print("obrot:");
+    Serial.print(obrot);
+    Serial.print("\t");
+
+    Serial.print("g:\t");
+    Serial.print(gx);
+    Serial.print("\t");
+    Serial.print(gy);
+    Serial.print("\t");
+    Serial.print(gz);
+    Serial.print("\t");
+    Serial.print("\t");
+    Serial.print(ax);
+    Serial.print("\t");
+    Serial.print(ay);
+    Serial.print("\t");
+    Serial.print(az);
+    Serial.println();
+  }  
 }
 void sendData(){
   radio.stopListening();

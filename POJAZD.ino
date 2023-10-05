@@ -70,6 +70,7 @@ void moveRifle();
 void calculateCarPos();
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);
 void lockOnTarget();
+void lastFunction();
 
 void setup() {
   pinMode(pTrig, OUTPUT);
@@ -90,28 +91,36 @@ void loop() {
   calculateCarPos();
   action();
 
-
-
-  /*Serial.print("joy:");
-  Serial.print("\t");
-  Serial.print("\t");
-  Serial.print(payload.xJoy_none);
-  Serial.print("\t");
-  Serial.print(payload.yJoy_none);
-  Serial.print("\t");
-  Serial.print("\t");
-  Serial.print(payload.fi_xTarget);
-  Serial.print("\t");
-  Serial.print(payload.ro_yTarget);
-  Serial.println();*/
+  lastFunction();
 }
 
 void receiveData() {
   radio.startListening();
   while (radio.available()) {               // if też działał
     radio.read(&payload, sizeof(payload));  //..read jak przeczyta to ustawia .available na false
-    Serial.println(payload.strike_start);
   }
+  Serial.print("joy: ");
+  Serial.print(payload.xJoy_none);
+  Serial.print("\t");
+  Serial.print(payload.yJoy_none);
+  Serial.print("\t");
+  Serial.print("pot: ");
+  Serial.print(payload.fi_xTarget);
+  Serial.print("\t");
+  Serial.print(payload.ro_yTarget);
+  Serial.print("\t");
+  Serial.print("manual_auto: ");
+  Serial.print(payload.manual_auto);
+  Serial.print("\t");
+  Serial.print("strike_start: ");
+  Serial.print(payload.strike_start);
+  Serial.print("\t");
+  Serial.print("load_none: ");
+  Serial.print(payload.load_none);
+  Serial.print("\t");
+  Serial.print("none_giveFedbackPositon: ");
+  Serial.print(payload.none_giveFedbackPositon);
+  Serial.println();
 }
 void getAccGyro() {
   if(payload.strike_start == 1){actualRotation = 0;}
@@ -222,7 +231,7 @@ void moveRifle() {
   motors.motorRifleRaise = payload.ro_yTarget;
 }
 void driveToTarget(DataToReceive startsPayload) {
-  Serial.println(180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget));
+  //Serial.println(180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget));
   double finalRotation = 180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget);
 
   // silnikiDC(20,-20) albo silnikiDC(-20,20)
@@ -237,6 +246,10 @@ void lockOnTarget(){  // namierz cel
   // procedura namierzania celu
   lockedOnTargetFlag = true;
   reachedPositionFlag = false;
+}
+void lastFunction(){
+  payload.load_none = 0;
+  payload.strike_start = 0;
 }
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max){
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;

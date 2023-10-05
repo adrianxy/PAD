@@ -177,8 +177,8 @@ void print(int x) { // wyświetlanie na LCD
         lcd.print("Automatyczny");
       break;
     case 1:  // przycisk 1 -> menu 
-      lcd.clear();
       if (pad.button[0] == 0) {  // dla trybu manulanego
+        lcd.clear();
         if (pad.button[1] == 0) {
           lcd.setCursor(0, 0);
           lcd.print("Katy dziala");
@@ -194,6 +194,7 @@ void print(int x) { // wyświetlanie na LCD
         }
       } else {                  // dla trybu autonomicznego
         if (pad.button[1] == 0) {
+          lcd.clear();
           lcd.setCursor(0, 0);
           lcd.print("Polozenie celu");
           lcd.setCursor(0, 1);
@@ -201,6 +202,7 @@ void print(int x) { // wyświetlanie na LCD
           lcd.setCursor(5, 1);
           lcd.print((map(pad.pot.Y, 0, 1023, -30, 30)));
         } else {
+          if (lastButt == 1){lcd.setCursor(0, 1); lcd.print("                ");} else{ lcd.clear();}
           lcd.setCursor(0, 0);
           lcd.print("Polozenie czolgu");
           lcd.setCursor(0, 1);

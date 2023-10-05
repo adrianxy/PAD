@@ -1,6 +1,7 @@
 #include <BMI160.h>
 #include <BMI160Gen.h>
 #include <CurieIMU.h>
+#include <math.h>
 
 #include <SPI.h>
 #include <nRF24L01.h>
@@ -27,14 +28,18 @@ struct DataToReceive {
 struct Motors {
   long motorDC1;
   long motorDC2;
+  long motorRifleRotation;
+  long motorRifleRaise;
 };
 
 struct CarCoords{
   double X;
   double Y;
+
 };
 
 DataToReceive payload;
+DataToReceive startsPayload; // po wciśnięciu start zapamietuje nastawy
 Motors motors;
 CarCoords carCoords;
 const byte addresses[][6] = { "00001", "00002" };
@@ -42,6 +47,8 @@ unsigned long gapInFeedback = 0;
 unsigned long mes = 0;
 unsigned long time = 0;
 bool startFlag = false;
+bool reachedPositionFlag = false;
+bool lockedOnTargetFlag = false;
 //bool cant strike = false;
 int gx, gy, gz;  // wartości z żyroskopu
 int ax, ay, az;  // wartości z akcelerometru (nieużywane)
@@ -49,19 +56,20 @@ int i = 0;
 int gzSum = 0;
 int timeSum = 0;
 float gzAve = 0;
-float rotation = 0;
+float actualRotation = 0;
 float distance = 10;
-
 
 
 void receiveData();
 void sendData();
 void getAccGyro();
 void action();
-void moveCar();
+void driveToTarget(DataToReceive startsPayload);
+void moveCarManual();
 void moveRifle();
 void calculateCarPos();
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);
+void lockOnTarget();
 
 void setup() {
   pinMode(pTrig, OUTPUT);
@@ -102,11 +110,11 @@ void receiveData() {
   radio.startListening();
   while (radio.available()) {               // if też działał
     radio.read(&payload, sizeof(payload));  //..read jak przeczyta to ustawia .available na false
-    //Serial.println(payload.strike_start);
+    Serial.println(payload.strike_start);
   }
 }
 void getAccGyro() {
-  if(payload.strike_start == 1){rotation = 0;}
+  if(payload.strike_start == 1){actualRotation = 0;}
 
   time = millis() - mes;  // pomiar czasu między pomiarami
   mes = millis();
@@ -125,19 +133,19 @@ void getAccGyro() {
   } else {
     gzAve = gzSum;  
     gzAve = gzAve / 8 / 1000; // średnia prędkość obrotu z 5 próbek i zamiana na [deg/ms]
-    rotation = rotation + timeSum * gzAve;
-    if(rotation > 360 || rotation <-360){ rotation = 0;}
+    actualRotation = actualRotation + timeSum * gzAve;
+    if(actualRotation > 360 || actualRotation <-360){ actualRotation = 0;}
     gzSum = 0;
     timeSum = 0;
     i = 0;
 
-    Serial.print("rotation: ");
-    Serial.print(rotation);
+    /*Serial.print("actualRotation: ");
+    Serial.print(actualRotation);
     Serial.print("\t\t");
 
     Serial.print("gz: ");
     Serial.print(gz);
-    Serial.println();
+    Serial.println();*/
   }
 }
 void sendData() {
@@ -146,7 +154,7 @@ void sendData() {
 }
 void action() {
   if (payload.manual_auto == 0) {  // manualny
-    moveCar();
+    moveCarManual();
     moveRifle();
     if (payload.strike_start == 1) {
       // rozpocznij proceduję strzału
@@ -154,12 +162,23 @@ void action() {
     if (payload.load_none == 1) {
       // rozpocznij precedurę załadunku
     }
-  } else {  // automatyczny
+  } 
+  else {  // automatyczny
     if (payload.strike_start == 1 || startFlag) {
-      trackToTarget();
+      if(!startFlag){
+        startsPayload = payload;  // gdy dopiero wystartował to zapisuje ustawienia na których będzie działał automat
+      }
+      startFlag = true;
+      driveToTarget(startsPayload);
+      if (reachedPositionFlag){
+        lockOnTarget();
+      }
+      else if(lockedOnTargetFlag){
+        // rozpocznij procedurę strzału
+        // rozpocznij procedurę załadunku
+      }
     }
     if (payload.none_giveFedbackPositon == 1) {
-      //delay(50);
       if (millis() - gapInFeedback >= 500) {
         gapInFeedback = millis();
         sendData();
@@ -167,7 +186,7 @@ void action() {
     }
   }
 }
-void moveCar() {
+void moveCarManual() {
   if (payload.xJoy_none >= 0 && payload.yJoy_none >= 0) {
     motors.motorDC1 = max(payload.xJoy_none, payload.yJoy_none);
     motors.motorDC2 = map(payload.xJoy_none, 0, 20, motors.motorDC1, -motors.motorDC1);
@@ -185,8 +204,12 @@ void moveCar() {
     motors.motorDC2 = map(payload.xJoy_none, 0, 20, motors.motorDC1, -motors.motorDC1);
     if (payload.yJoy_none == 0) { motors.motorDC2 = motors.motorDC1; }
   }
-  /*
-  Serial.print("joy:");
+  if (abs(motors.motorDC1) <= 4 || abs(motors.motorDC2) <= 4){
+    motors.motorDC1 = 0;
+    motors.motorDC2 = 0;
+  }
+  
+  /*Serial.print("joy:");
   Serial.print("\t");
   Serial.print("\t");
   Serial.print(motors.motorDC1);
@@ -195,16 +218,26 @@ void moveCar() {
   Serial.println();*/
 }
 void moveRifle() {
-
+  motors.motorRifleRotation = payload.fi_xTarget;
+  motors.motorRifleRaise = payload.ro_yTarget;
 }
-void trackToTarget() {
+void driveToTarget(DataToReceive startsPayload) {
+  Serial.println(180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget));
+  double finalRotation = 180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget);
 
+  // silnikiDC(20,-20) albo silnikiDC(-20,20)
+
+  if (actualRotation = finalRotation){ reachedPositionFlag = true; }
 }
 void calculateCarPos(){
-  carCoords.X = sin(mapfloat(rotation, -360, 360, -6.28, 6.28)) * distance; // idstance będzie zliczał obroty kół z długości PWM
-  carCoords.Y = cos(mapfloat(rotation, -360, 360, -6.28, 6.28)) * distance;
+  carCoords.X = sin(mapfloat(actualRotation, -360, 360, -6.28, 6.28)) * distance; // idstance będzie zliczał obroty kół z długości PWM
+  carCoords.Y = cos(mapfloat(actualRotation, -360, 360, -6.28, 6.28)) * distance;
 }
-float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
-{
+void lockOnTarget(){  // namierz cel
+  // procedura namierzania celu
+  lockedOnTargetFlag = true;
+  reachedPositionFlag = false;
+}
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max){
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }

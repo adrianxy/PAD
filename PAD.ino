@@ -48,11 +48,16 @@ struct DataToSend{    // pakiet wysyłanych danych
   byte load_none;
   byte none_giveFedbackPositon;
 };
-
+struct CarCoords{
+  double X;
+  double Y;
+};
 
 // ZMIENNE
 Pad pad;
 DataToSend payload;
+CarCoords carCoords;
+
 const byte addresses[][6] = { "00001", "00002" };
 const long minJoy = 0;
 const long maxJoy = 100;
@@ -158,6 +163,7 @@ void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia poja
     sendData();
     receiveData();
     payload.none_giveFedbackPositon = 0;
+    print(lastButt);
   }
 }
 void print(int x) { // wyświetlanie na LCD
@@ -177,9 +183,9 @@ void print(int x) { // wyświetlanie na LCD
           lcd.setCursor(0, 0);
           lcd.print("Katy dziala");
           lcd.setCursor(0, 1);
-          lcd.print(pad.pot.X);
+          lcd.print(map(pad.pot.X, 0, 1023, 0, 90));
           lcd.setCursor(5, 1);
-          lcd.print(pad.pot.Y);
+          lcd.print(map(pad.pot.Y, 0, 1023, 0, 90));
         } else {
           lcd.setCursor(0, 0);
           lcd.print("Ladowanie kuli");
@@ -191,12 +197,16 @@ void print(int x) { // wyświetlanie na LCD
           lcd.setCursor(0, 0);
           lcd.print("Polozenie celu");
           lcd.setCursor(0, 1);
-          lcd.print(pad.pot.X);
+          lcd.print((map(pad.pot.X, 0, 1023, -30, 30)));
           lcd.setCursor(5, 1);
-          lcd.print(pad.pot.Y);
+          lcd.print((map(pad.pot.Y, 0, 1023, -30, 30)));
         } else {
           lcd.setCursor(0, 0);
           lcd.print("Polozenie czolgu");
+          lcd.setCursor(0, 1);
+          lcd.print((int)carCoords.X);
+          lcd.setCursor(5, 1);
+          lcd.print((int)carCoords.Y);
         }
       }
       break;
@@ -234,8 +244,8 @@ void prepareData(){ // tworzy paczkę danych do wysłania
   payload.xJoy_none = map(pad.joy.X, 0, 1023, -20, 21); // prędkości pojazdu x,y
   payload.yJoy_none = map(pad.joy.Y, 0, 1023, 20, -21);
   if (payload.manual_auto == 0){
-    payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
-    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 180);
+    payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 90); // kąty działka ro i fi 
+    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 90);
   }
   else{
     payload.fi_xTarget = map(pad.pot.X, 0, 1023, -30, 30);  // położenie celu w [dm]
@@ -248,11 +258,6 @@ void prepareData(){ // tworzy paczkę danych do wysłania
 void sendData() { // wysyłanie paczki danych
     radio.stopListening();
     radio.write(&payload, sizeof(payload));
-    
-    Serial.print(payload.xJoy_none);
-    Serial.print("\t");
-    Serial.print(payload.yJoy_none);
-    Serial.println("\t");
 }
 void receiveData() { //odbiór informacji o położeniu pojazdu 
     timeForDownload = millis();
@@ -263,7 +268,11 @@ void receiveData() { //odbiór informacji o położeniu pojazdu
       }
     }
     if (radio.available()) {  // jeśli jest co odebrać do odbierz |jeśli będzie zacinało to tutaj może warto dać while, ale to może opóźnić program|
-      radio.read(&tempR, sizeof(tempR));
-      Serial.println(tempR);
+      radio.read(&carCoords, sizeof(carCoords));
+      Serial.print("carCoords(X,Y): ");
+      Serial.print(carCoords.X);
+      Serial.print("\t");
+      Serial.print(carCoords.Y);
+      Serial.println();
     }
 }

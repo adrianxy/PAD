@@ -13,7 +13,7 @@ RF24 radio(7, 8);  // CE, CSN
 
 const int i2c_addr = 0x68;
 
-struct DataToSend {
+struct DataToReceive {
   byte manual_auto;
   int xJoy_none;
   int yJoy_none;
@@ -26,30 +26,33 @@ struct DataToSend {
 
 struct Motors {
   long motorDC1;
-  long motorDC2; 
+  long motorDC2;
 };
 
+struct CarCoords{
+  double X;
+  double Y;
+};
 
-DataToSend payload;
+DataToReceive payload;
 Motors motors;
+CarCoords carCoords;
 const byte addresses[][6] = { "00001", "00002" };
-int tempW = 1;
-int tempR = 0;
-int gx, gy, gz;    // raw gyro values
-int ax, ay, az;    // raw gyro values
-float gX, gY, gZ;  // raw gyro values
-long aX, aY, aZ;   // raw gyro values
-unsigned long timeForUpload = 0;
 unsigned long gapInFeedback = 0;
-//bool cant strike = false;
-bool startFlag = false;
-
-float obrot = 0;
 unsigned long mes = 0;
 unsigned long time = 0;
+bool startFlag = false;
+//bool cant strike = false;
+int gx, gy, gz;  // wartości z żyroskopu
+int ax, ay, az;  // wartości z akcelerometru (nieużywane)
 int i = 0;
 int gzSum = 0;
 int timeSum = 0;
+float gzAve = 0;
+float rotation = 0;
+float distance = 10;
+
+
 
 void receiveData();
 void sendData();
@@ -57,6 +60,8 @@ void getAccGyro();
 void action();
 void moveCar();
 void moveRifle();
+void calculateCarPos();
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);
 
 void setup() {
   pinMode(pTrig, OUTPUT);
@@ -73,10 +78,12 @@ void setup() {
 
 void loop() {
   receiveData();
-  //if(payload.strike_start == 1){obrot = 0;}
-  //getAccGyro();
+  getAccGyro();
+  calculateCarPos();
   action();
-  //Serial.println(map(payload.yJoy_none, 0, 100, -10, 10));
+
+
+
   /*Serial.print("joy:");
   Serial.print("\t");
   Serial.print("\t");
@@ -95,103 +102,47 @@ void receiveData() {
   radio.startListening();
   while (radio.available()) {               // if też działał
     radio.read(&payload, sizeof(payload));  //..read jak przeczyta to ustawia .available na false
-    Serial.println(payload.strike_start);
-    //Serial.println(tempR);
+    //Serial.println(payload.strike_start);
   }
 }
 void getAccGyro() {
-  /*//delay(10);
-  long gz2;
-  gz2 = gz;
-  time = millis() - mes;
+  if(payload.strike_start == 1){rotation = 0;}
+
+  time = millis() - mes;  // pomiar czasu między pomiarami
   mes = millis();
   BMI160.readGyro(gx, gy, gz);
-  BMI160.readAccelerometer(ax, ay, az);
-  
-  
-  ax = map(ax, -32768, 32768, -19600, 19600);
-  ay = map(ay, -32768, 32768, -19600, 19600);
-  az = map(az, -32768, 32768, -19600, 19600);
-  gx = map(gx, -32768, 32768, -125, 125);
-  gy = map(gy, -32768, 32768, -125, 125);
-  
-  if(abs(gz2 - map(gz, -32768, 32768, -250, 250)) > 2){
-    gz = map(gz, -32768, 32768, -250, 250);
-  }
-  else{
-    gz = 0;
-  }
-  
-  float gz1 = gz;
-  gz1 = gz1/1000;
-  obrot = obrot + time * gz1;
-  Serial.print("obrot:");
-  Serial.print(obrot);
-  Serial.print("\t");
 
-  Serial.print("g:\t");
-  Serial.print(gx);
-  Serial.print("\t");
-  Serial.print(gy);
-  Serial.print("\t");
-  Serial.print(gz);
-  Serial.print("\t");
-  Serial.print("\t");
-  Serial.print(ax);
-  Serial.print("\t");
-  Serial.print(ay);
-  Serial.print("\t");
-  Serial.print(az);
-  Serial.println();
-  */
-
-  long gz2;
-  gz2 = gz;
-  time = millis() - mes;
-  mes = millis();
-  BMI160.readGyro(gx, gy, gz);
-  if (abs(map(gz, -32768, 32768, -250, 250)) > 3) {
-    gz = map(gz, -32768, 32768, -250, 250);
+  if (abs(map(gz, -32768, 32768, 250, -250)) > 3) { // zbieranie informacji z żyroskopu 
+    gz = map(gz, -32768, 32768, 250, -250);
   } else {
     gz = 0;
   }
-  if (i < 5) {
+
+  if (i < 8) {    // obliczanie obrotu
     gzSum = gzSum + gz;
     timeSum = timeSum + time;
     i++;
   } else {
-    gzSum = gzSum / 5;
-    float gz1 = gzSum;
-    gz1 = gz1 / 1000;
-    obrot = obrot + timeSum * gz1;
+    gzAve = gzSum;  
+    gzAve = gzAve / 8 / 1000; // średnia prędkość obrotu z 5 próbek i zamiana na [deg/ms]
+    rotation = rotation + timeSum * gzAve;
+    if(rotation > 360 || rotation <-360){ rotation = 0;}
     gzSum = 0;
     timeSum = 0;
     i = 0;
-    Serial.print("obrot:");
-    Serial.print(obrot);
-    Serial.print("\t");
 
-    Serial.print("g:\t");
-    Serial.print(gx);
-    Serial.print("\t");
-    Serial.print(gy);
-    Serial.print("\t");
+    Serial.print("rotation: ");
+    Serial.print(rotation);
+    Serial.print("\t\t");
+
+    Serial.print("gz: ");
     Serial.print(gz);
-    Serial.print("\t");
-    Serial.print("\t");
-    Serial.print(ax);
-    Serial.print("\t");
-    Serial.print(ay);
-    Serial.print("\t");
-    Serial.print(az);
     Serial.println();
   }
 }
 void sendData() {
   radio.stopListening();
-  radio.write(&tempW, sizeof(tempW));
-  Serial.println(tempW);
-  tempW++;
+  radio.write(&carCoords, sizeof(carCoords));
 }
 void action() {
   if (payload.manual_auto == 0) {  // manualny
@@ -234,16 +185,26 @@ void moveCar() {
     motors.motorDC2 = map(payload.xJoy_none, 0, 20, motors.motorDC1, -motors.motorDC1);
     if (payload.yJoy_none == 0) { motors.motorDC2 = motors.motorDC1; }
   }
-  
+  /*
   Serial.print("joy:");
   Serial.print("\t");
   Serial.print("\t");
   Serial.print(motors.motorDC1);
   Serial.print("\t");
   Serial.print(motors.motorDC2);
-  Serial.println();
+  Serial.println();*/
 }
 void moveRifle() {
+
 }
 void trackToTarget() {
+
+}
+void calculateCarPos(){
+  carCoords.X = sin(mapfloat(rotation, -360, 360, -6.28, 6.28)) * distance; // idstance będzie zliczał obroty kół z długości PWM
+  carCoords.Y = cos(mapfloat(rotation, -360, 360, -6.28, 6.28)) * distance;
+}
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }

@@ -163,7 +163,7 @@ void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia poja
     sendData();
     receiveData();
     payload.none_giveFedbackPositon = 0;
-    print(lastButt);
+    if (lastButt == 1 && pad.button[1] == 1){ print(lastButt); }
   }
 }
 void print(int x) { // wyświetlanie na LCD

@@ -7,9 +7,6 @@
 #include <nRF24L01.h>
 #include <RF24.h>
 
-#define pTrig 3
-#define pEcho 2
-
 RF24 radio(7, 8);  // CE, CSN
 
 const int i2c_addr = 0x68;
@@ -47,6 +44,7 @@ unsigned long gapInFeedback = 0;
 unsigned long mes = 0;
 unsigned long time = 0;
 bool startFlag = false;
+bool canMoveFlag = false;
 bool reachedPositionFlag = false;
 bool lockedOnTargetFlag = false;
 //bool cant strike = false;
@@ -56,7 +54,7 @@ int i = 0;
 int gzSum = 0;
 int timeSum = 0;
 float gzAve = 0;
-float actualRotation = 0;
+float currentRotation = 0;
 float distance = 10;
 
 
@@ -73,9 +71,6 @@ void lockOnTarget();
 void lastFunction();
 
 void setup() {
-  pinMode(pTrig, OUTPUT);
-  pinMode(pEcho, INPUT);
-
   Serial.begin(9600);
   radio.begin();
   radio.openWritingPipe(addresses[0]);     // 00001
@@ -99,7 +94,8 @@ void receiveData() {
   while (radio.available()) {               // if też działał
     radio.read(&payload, sizeof(payload));  //..read jak przeczyta to ustawia .available na false
   }
-  Serial.print("joy: ");
+  
+  /*Serial.print("joy: ");
   Serial.print(payload.xJoy_none);
   Serial.print("\t");
   Serial.print(payload.yJoy_none);
@@ -120,10 +116,10 @@ void receiveData() {
   Serial.print("\t");
   Serial.print("none_giveFedbackPositon: ");
   Serial.print(payload.none_giveFedbackPositon);
-  Serial.println();
+  Serial.println();*/
 }
 void getAccGyro() {
-  if(payload.strike_start == 1){actualRotation = 0;}
+  if(payload.strike_start == 1){currentRotation = 0;}
 
   time = millis() - mes;  // pomiar czasu między pomiarami
   mes = millis();
@@ -142,14 +138,14 @@ void getAccGyro() {
   } else {
     gzAve = gzSum;  
     gzAve = gzAve / 8 / 1000; // średnia prędkość obrotu z 5 próbek i zamiana na [deg/ms]
-    actualRotation = actualRotation + timeSum * gzAve;
-    if(actualRotation > 360 || actualRotation <-360){ actualRotation = 0;}
+    currentRotation = currentRotation + timeSum * gzAve;
+    if(currentRotation > 360 || currentRotation <-360){ currentRotation = 0;}
     gzSum = 0;
     timeSum = 0;
     i = 0;
 
-    /*Serial.print("actualRotation: ");
-    Serial.print(actualRotation);
+    /*Serial.print("currentRotation: ");
+    Serial.print(currentRotation);
     Serial.print("\t\t");
 
     Serial.print("gz: ");
@@ -178,11 +174,9 @@ void action() {
         startsPayload = payload;  // gdy dopiero wystartował to zapisuje ustawienia na których będzie działał automat
       }
       startFlag = true;
-      driveToTarget(startsPayload);
-      if (reachedPositionFlag){
-        lockOnTarget();
-      }
-      else if(lockedOnTargetFlag){
+      if (canMoveFlag){ driveToTarget(startsPayload); }
+      if (reachedPositionFlag){ lockOnTarget(); }
+      if (lockedOnTargetFlag){
         // rozpocznij procedurę strzału
         // rozpocznij procedurę załadunku
       }
@@ -231,19 +225,30 @@ void moveRifle() {
   motors.motorRifleRaise = payload.ro_yTarget;
 }
 void driveToTarget(DataToReceive startsPayload) {
-  //Serial.println(180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget));
+  Serial.println(180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget));
   double finalRotation = 180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget);
 
-  // silnikiDC(20,-20) albo silnikiDC(-20,20)
-
-  if (actualRotation = finalRotation){ reachedPositionFlag = true; }
+  if (currentRotation >= (finalRotation - 2) && currentRotation <= (finalRotation + 2)){  // tolerancja 2 deg
+    motors.motorDC1 = 0;
+    motors.motorDC2 = 0;
+    reachedPositionFlag = true;
+    canMoveFlag = false;
+  }
+  else if ((finalRotation - 2) > currentRotation){
+    motors.motorDC1 = 10;
+    motors.motorDC2 = -10;
+  }
+  else if((finalRotation + 2) < currentRotation){
+    motors.motorDC1 = -10;
+    motors.motorDC2 = 10;
+  }
 }
 void calculateCarPos(){
-  carCoords.X = sin(mapfloat(actualRotation, -360, 360, -6.28, 6.28)) * distance; // idstance będzie zliczał obroty kół z długości PWM
-  carCoords.Y = cos(mapfloat(actualRotation, -360, 360, -6.28, 6.28)) * distance;
+  carCoords.X = sin(mapfloat(currentRotation, -360, 360, -6.28, 6.28)) * distance; // distance będzie zliczał obroty kół z długości PWM
+  carCoords.Y = cos(mapfloat(currentRotation, -360, 360, -6.28, 6.28)) * distance;
 }
 void lockOnTarget(){  // namierz cel
-  // procedura namierzania celu
+  // procedura namierzania celu (obroty czujnikiem)
   lockedOnTargetFlag = true;
   reachedPositionFlag = false;
 }

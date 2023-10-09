@@ -6,8 +6,10 @@
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
+#include <VL53L0X.h>
 
 RF24 radio(7, 8);  // CE, CSN
+VL53L0X sensor;
 
 const int i2c_addr = 0x68;
 
@@ -78,6 +80,15 @@ void setup() {
   radio.setPALevel(RF24_PA_MIN);
 
   BMI160.begin(BMI160GenClass::I2C_MODE, i2c_addr);
+  //sensor.setAddress(0x29);
+  //sensor.writeReg(VL53L0X::SYSRANGE_START, 0x29);
+   sensor.setTimeout(1000);
+  while (!sensor.init())
+  {
+    Serial.println("Failed to detect and initialize sensor!");
+    //while (1) {}
+  }
+  sensor.startContinuous();
 }
 
 void loop() {
@@ -85,7 +96,8 @@ void loop() {
   getAccGyro();
   calculateCarPos();
   action();
-
+  //Serial.println(sensor.getAddress());
+  lockOnTarget();
   lastFunction();
 }
 
@@ -249,6 +261,10 @@ void calculateCarPos(){
 }
 void lockOnTarget(){  // namierz cel
   // procedura namierzania celu (obroty czujnikiem)
+  Serial.print(sensor.readRangeContinuousMillimeters());
+  if (sensor.timeoutOccurred()) { Serial.print(" TIMEOUT"); }
+  //delay(100);
+  Serial.println();
   lockedOnTargetFlag = true;
   reachedPositionFlag = false;
 }

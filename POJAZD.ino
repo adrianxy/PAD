@@ -2,14 +2,23 @@
 #include <BMI160Gen.h>
 #include <CurieIMU.h>
 #include <math.h>
-
+#include <printf.h>
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
 #include <VL53L0X.h>
+#include <Adafruit_PWMServoDriver.h>
+
+
+#define in1_L298N 2 // H
+#define in2_L298N 3 // L -> obrót ze wskazówkami zegara silnika DC1
+#define in3_L298N 4
+#define in4_L298N 5
+
 
 RF24 radio(7, 8);  // CE, CSN
 VL53L0X sensor;
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 const int i2c_addr = 0x68;
 
@@ -42,6 +51,9 @@ DataToReceive startsPayload; // po wciśnięciu start zapamietuje nastawy
 Motors motors;
 CarCoords carCoords;
 const byte addresses[][6] = { "00001", "00002" };
+const int maxPWMserwo180 = 650; // skrajna pozycja 2 (650 z 4096)
+const int minPWMserwo180 = 125; // skrajna pozycja 1 (125 z 4096)
+const int midPWMservo360 = 374; // nie rusza się (374 z 4096)
 unsigned long gapInFeedback = 0;
 unsigned long mes = 0;
 unsigned long time = 0;
@@ -71,8 +83,14 @@ void calculateCarPos();
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);
 void lockOnTarget();
 void lastFunction();
+void setPWM();
 
 void setup() {
+  pinMode(in1_L298N, OUTPUT);
+  pinMode(in2_L298N, OUTPUT);
+  pinMode(in3_L298N, OUTPUT);
+  pinMode(in4_L298N, OUTPUT);
+
   Serial.begin(9600);
   radio.begin();
   radio.openWritingPipe(addresses[0]);     // 00001
@@ -82,13 +100,16 @@ void setup() {
   BMI160.begin(BMI160GenClass::I2C_MODE, i2c_addr);
   //sensor.setAddress(0x29);
   //sensor.writeReg(VL53L0X::SYSRANGE_START, 0x29);
-   sensor.setTimeout(1000);
+  sensor.setTimeout(1000);
   while (!sensor.init())
   {
     Serial.println("Failed to detect and initialize sensor!");
     //while (1) {}
   }
   sensor.startContinuous();
+
+  pwm.begin();
+  pwm.setPWMFreq(60);
 }
 
 void loop() {
@@ -97,7 +118,7 @@ void loop() {
   calculateCarPos();
   action();
   //Serial.println(sensor.getAddress());
-  lockOnTarget();
+  //lockOnTarget();
   lastFunction();
 }
 
@@ -223,14 +244,14 @@ void moveCarManual() {
     motors.motorDC1 = 0;
     motors.motorDC2 = 0;
   }
-  
-  /*Serial.print("joy:");
+  setPWM();
+  Serial.print("joy:");
   Serial.print("\t");
   Serial.print("\t");
   Serial.print(motors.motorDC1);
   Serial.print("\t");
   Serial.print(motors.motorDC2);
-  Serial.println();*/
+  Serial.println();
 }
 void moveRifle() {
   motors.motorRifleRotation = payload.fi_xTarget;
@@ -258,6 +279,12 @@ void driveToTarget(DataToReceive startsPayload) {
 void calculateCarPos(){
   carCoords.X = sin(mapfloat(currentRotation, -360, 360, -6.28, 6.28)) * distance; // distance będzie zliczał obroty kół z długości PWM
   carCoords.Y = cos(mapfloat(currentRotation, -360, 360, -6.28, 6.28)) * distance;
+
+  /*Serial.print("carCoords.X \t");
+  Serial.print(carCoords.X);
+  Serial.print("\t carCoords.Y \t");
+  Serial.print(carCoords.Y);
+  Serial.println();*/
 }
 void lockOnTarget(){  // namierz cel
   // procedura namierzania celu (obroty czujnikiem)
@@ -267,6 +294,43 @@ void lockOnTarget(){  // namierz cel
   Serial.println();
   lockedOnTargetFlag = true;
   reachedPositionFlag = false;
+}
+void setPWM(){
+  int temp;
+  if(motors.motorDC1 == 0){
+    digitalWrite(in1_L298N, LOW);
+    digitalWrite(in2_L298N, LOW);
+  }
+  else if(motors.motorDC1 < 0){
+    temp = map(motors.motorDC1, -4, -20, 0, 4000);
+    digitalWrite(in1_L298N, LOW);
+    digitalWrite(in2_L298N, HIGH);
+    pwm.setPWM(0, 0, temp);
+  }
+  else{
+    temp = map(motors.motorDC1, 4, 20, 0, 4000);
+    digitalWrite(in1_L298N, HIGH);
+    digitalWrite(in2_L298N, LOW);
+    pwm.setPWM(0, 0, temp);
+  }
+
+  if(motors.motorDC2 == 0){
+    digitalWrite(in3_L298N, LOW);
+    digitalWrite(in4_L298N, LOW);
+  }
+  else if(motors.motorDC2 < 0){
+    temp = map(motors.motorDC2, -20, 0, 0, 4000);
+    digitalWrite(in3_L298N, LOW);
+    digitalWrite(in4_L298N, HIGH);
+    pwm.setPWM(1, 0, temp);
+  }
+  else{
+    temp = map(motors.motorDC2, 0, 20, 0, 4000);
+    digitalWrite(in3_L298N, HIGH);
+    digitalWrite(in4_L298N, LOW);
+    pwm.setPWM(1, 0, temp);
+  }
+  //Serial.println(temp);
 }
 void lastFunction(){
   payload.load_none = 0;

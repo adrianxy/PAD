@@ -10,13 +10,15 @@
 #include <Adafruit_PWMServoDriver.h>
 
 
-#define in1_L298N 2 // H
-#define in2_L298N 3 // L -> obrót ze wskazówkami zegara silnika DC1
-#define in3_L298N 4
-#define in4_L298N 5
+#define in1_L298N 2 // | 
+#define in2_L298N 3 // |
+#define in3_L298N 4 // |
+#define in4_L298N 5 // | kontrola obrotów silników DC 1 i 2
 
+#define CE_NRF24 7
+#define CSN_NRF24 8
 
-RF24 radio(7, 8);  // CE, CSN
+RF24 radio(CE_NRF24, CSN_NRF24);  // CE, CSN
 VL53L0X sensor;
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
@@ -189,11 +191,13 @@ void getAccGyro() {
 void sendData() {
   radio.stopListening();
   radio.write(&carCoords, sizeof(carCoords));
+  Serial.println(carCoords.X);
 }
 void action() {
   if (payload.manual_auto == 0) {  // manualny
     moveCarManual();
     moveRifle();
+    setPWM();
     if (payload.strike_start == 1) {
       // rozpocznij proceduję strzału
     }
@@ -227,31 +231,37 @@ void moveCarManual() {
     motors.motorDC1 = max(payload.xJoy_none, payload.yJoy_none);
     motors.motorDC2 = map(payload.xJoy_none, 0, 20, motors.motorDC1, -motors.motorDC1);
     if (payload.yJoy_none == 0) { motors.motorDC2 = -motors.motorDC1; }
-  } else if (payload.xJoy_none <= 0 && payload.yJoy_none >= 0) {
+  } 
+  else if (payload.xJoy_none <= 0 && payload.yJoy_none >= 0) {
     motors.motorDC2 = max(abs(payload.xJoy_none), payload.yJoy_none);
     motors.motorDC1 = map(payload.xJoy_none, 0, -20, motors.motorDC2, -motors.motorDC2);
     if (payload.yJoy_none == 0) { motors.motorDC1 = -motors.motorDC2; }
-  } else if (payload.xJoy_none <= 0 && payload.yJoy_none <= 0) {
+  } 
+  else if (payload.xJoy_none <= 0 && payload.yJoy_none <= 0) {
     motors.motorDC2 = min(payload.xJoy_none, payload.yJoy_none);
     motors.motorDC1 = map(payload.xJoy_none, 0, -20, motors.motorDC2, -motors.motorDC2);
     if (payload.yJoy_none == 0) { motors.motorDC1 = motors.motorDC2; }
-  } else {
+  } 
+  else {
     motors.motorDC1 = min(-payload.xJoy_none, payload.yJoy_none);
     motors.motorDC2 = map(payload.xJoy_none, 0, 20, motors.motorDC1, -motors.motorDC1);
     if (payload.yJoy_none == 0) { motors.motorDC2 = motors.motorDC1; }
   }
-  if (abs(motors.motorDC1) <= 4 || abs(motors.motorDC2) <= 4){
+
+  if (abs(motors.motorDC1) <= 2){
     motors.motorDC1 = 0;
+  }
+  else if(abs(motors.motorDC2) <= 2){
     motors.motorDC2 = 0;
   }
-  setPWM();
-  Serial.print("joy:");
+
+  /*Serial.print("joy:");
   Serial.print("\t");
   Serial.print("\t");
   Serial.print(motors.motorDC1);
   Serial.print("\t");
   Serial.print(motors.motorDC2);
-  Serial.println();
+  Serial.println();*/
 }
 void moveRifle() {
   motors.motorRifleRotation = payload.fi_xTarget;
@@ -302,13 +312,13 @@ void setPWM(){
     digitalWrite(in2_L298N, LOW);
   }
   else if(motors.motorDC1 < 0){
-    temp = map(motors.motorDC1, -4, -20, 0, 4000);
+    temp = map(motors.motorDC1, -2, -20, 0, 4000);
     digitalWrite(in1_L298N, LOW);
     digitalWrite(in2_L298N, HIGH);
     pwm.setPWM(0, 0, temp);
   }
   else{
-    temp = map(motors.motorDC1, 4, 20, 0, 4000);
+    temp = map(motors.motorDC1, 2, 20, 0, 4000);
     digitalWrite(in1_L298N, HIGH);
     digitalWrite(in2_L298N, LOW);
     pwm.setPWM(0, 0, temp);
@@ -319,18 +329,23 @@ void setPWM(){
     digitalWrite(in4_L298N, LOW);
   }
   else if(motors.motorDC2 < 0){
-    temp = map(motors.motorDC2, -20, 0, 0, 4000);
+    temp = map(motors.motorDC2, -2, -20, 0, 4000);
     digitalWrite(in3_L298N, LOW);
     digitalWrite(in4_L298N, HIGH);
     pwm.setPWM(1, 0, temp);
   }
   else{
-    temp = map(motors.motorDC2, 0, 20, 0, 4000);
+    temp = map(motors.motorDC2, 2, 20, 0, 4000);
     digitalWrite(in3_L298N, HIGH);
     digitalWrite(in4_L298N, LOW);
     pwm.setPWM(1, 0, temp);
   }
-  //Serial.println(temp);
+  
+  temp = map(motors.motorRifleRotation, 0, 180, 125, 650);
+  pwm.setPWM(2, 0, temp); 
+
+  temp = map(motors.motorRifleRaise, 0, 180, 125, 650);
+  pwm.setPWM(3, 0, temp); 
 }
 void lastFunction(){
   payload.load_none = 0;

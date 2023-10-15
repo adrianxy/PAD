@@ -246,7 +246,7 @@ void prepareData(){ // tworzy paczkę danych do wysłania
   payload.xJoy_none = map(pad.joy.X, 0, 1023, -20, 21); // prędkości pojazdu x,y
   payload.yJoy_none = map(pad.joy.Y, 0, 1023, 20, -21);
   if (payload.manual_auto == 0){
-    payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 90); // kąty działka ro i fi 
+    payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
     payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 90);
   }
   else{
@@ -265,9 +265,9 @@ void receiveData() { //odbiór informacji o położeniu pojazdu
     timeForDownload = millis();
     radio.startListening();
     while (!radio.available()) {  // czeka aż będzie jakaś wiadomość do odbioru 
-      if ((millis() - timeForDownload) >= 100) {  // ale nie czeka dłużej niż 100 ms
+      //if ((millis() - timeForDownload) >= 100) {  // ale nie czeka dłużej niż 100 ms
         break;
-      }
+      //}
     }
     if (radio.available()) {  // jeśli jest co odebrać do odbierz |jeśli będzie zacinało to tutaj może warto dać while, ale to może opóźnić program|
       radio.read(&carCoords, sizeof(carCoords));

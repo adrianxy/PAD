@@ -3,7 +3,6 @@
 #include <RF24_config.h>
 #include <nRF24L01.h>
 #include <printf.h>
-
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 

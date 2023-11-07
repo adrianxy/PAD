@@ -11,8 +11,8 @@
 
 
 // DEFINICJE  
-#define in1_L298N 2 // | 
-#define in2_L298N 3 // |
+#define in1_L298N 9 // | 
+#define in2_L298N 10 // |
 #define in3_L298N 4 // |
 #define in4_L298N 5 // | kontrola obrotów silników DC 1 i 2
 #define CE_NRF24 7    // |
@@ -20,6 +20,8 @@
 #define MOSI_NRF24 11 // |
 #define MISO_NRF24 12 // | 
 #define CSK_NRF24 13  // | obsługa NRF24 
+#define interruptPin1 2  // | enkoder 400 impulsów na obrót
+#define interruptPin2 3  // | obsługa NRF24 
 
 
 // OBIEKTY
@@ -69,9 +71,14 @@
  unsigned long timeOfGyroMeasurement = 0;  // czas wykonania pomiaru żyroskopem
  unsigned long dTimeGyroMeasurement = 0; // czas pamiędzy pomiarami żyroskopem
  unsigned long timeOfDriving = 0;
+ unsigned long timeOf_soft_stop = 0;
+
+ unsigned int leftEncoderPulse = 0;
+ unsigned int rightEncoderPulse = 0;
+ 
 
  bool startFlag = false; // flaga - czy rozpoczęto program autonomiczny (start)
- bool driveToTargetFlag = false; // flaga - czy można jechać do celu
+ bool driveToTargetFlag = true; // flaga - czy można jechać do celu
  bool lockOnTargetFlag = false; // flaga - czy można namierzyć cel
  bool strikeFlag = false; // flaga - czy można wystrzelić pocisk
  bool reloadFlag = false; // flaga - czy można załadować pocisk
@@ -82,11 +89,12 @@
  int i_gyro = 0;  // zliczanie ilości próbek
  int gzSum = 0;   // suma i_gyro próbek
  int gzTimeSum = 0; // czas wykonania i_gyro próbek
+ int n_soft_stop = 0;
 
  float gzAve = 0; // średni kąt obrotu w czasie gzTimeSum
  float currentRotation = 0; // obecny kąt obrotu
  float distance = 10;  // przejechany dystans
-
+int temp0;
 
 // DEFINICJE FUNKCJI
  void receiveData(); // odczytywanie danych do "payload"
@@ -94,17 +102,23 @@
  void sendData();    // wysyłanie "carCoords" do kontrolera
  void getAccGyro();  // wpisywanie kątu obrotu do "currentRotation" 
  void action();      // zarząda ruchem części pojazdu
- void driveToTarget(DataToReceive startsPayload);  // jazda autonomiczna w okolice celu, ustawanie zmiennch motors.[]
+ void moveCarAutonomical(DataToReceive startsPayload);  // jazda autonomiczna w okolice celu, ustawanie zmiennch motors.[]
  void moveCarManual();   // jazda manualna pojazdem, ustawianie zmiennych motors.[] 
  void moveRifleManual(); // ustawianie manualne pozycji działa, ustawianie zmiennych motors.[]
  void calculateCarPos(); // wpisywanie pozycji pojazdu do "carCoords" 
  void lockOnTarget();    // dokładne namierzanie celu poprzez czujnik laserowy  
  void lastFunction();    // ustawianie warunków dla prawidłowego działania programu
- void setPWM();          // interpretacja zmiennych motors.[] i przekazywanie ich do silników
+ void setPWMs();          // interpretacja zmiennych motors.[] i przekazywanie ich do silników
  float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);  // zmiennoprzecinkowe mapowanie
+ void leftEncoder();
+ void rightEncoder();
+
 
 // PROGRAM
  void setup() {
+  attachInterrupt(digitalPinToInterrupt(interruptPin1), leftEncoder,  RISING);
+  attachInterrupt(digitalPinToInterrupt(interruptPin2), rightEncoder, RISING);
+
   pinMode(in1_L298N, OUTPUT);
   pinMode(in2_L298N, OUTPUT);
   pinMode(in3_L298N, OUTPUT);
@@ -132,6 +146,7 @@ void loop() {
   giveFeedback();
   action();
   lastFunction();
+  //setPWMs();
 }
 
 void receiveData() {
@@ -170,7 +185,7 @@ void getAccGyro() {
   timeOfGyroMeasurement = millis();
   BMI160.readGyro(gx, gy, gz);  // czytanie z żyroskopu
 
-  if (abs(map(gz, -32768, 32768, 250, -250)) > 3) { // mapowanie wartości na kąty w stopniach
+  if (abs(map(gz, -32768, 32768, 250, -250)) > 2) { // mapowanie wartości na kąty w stopniach
     gz = map(gz, -32768, 32768, 250, -250);
   } 
   else {
@@ -221,9 +236,10 @@ void action() {
   if (payload.manual_auto == 0) {  
     moveCarManual();
     moveRifleManual();
-    setPWM();
+    setPWMs();
     if (payload.strike_start == 1) { /* rozpocznij proceduję strzału*/ }
     if (payload.load_none == 1) { /* rozpocznij precedurę załadunku*/ }
+    startFlag = false;  // resetuje tryb autonomiczny
   } 
  // AUTONOMINCZY
   else { 
@@ -232,7 +248,7 @@ void action() {
         startsPayload = payload;  // gdy dopiero wystartował to zapisuje ustawienia na których będzie działał automat
       }
       startFlag = true;
-      if (driveToTargetFlag){ driveToTarget(startsPayload); }
+      if (driveToTargetFlag){ moveCarAutonomical(startsPayload); setPWMs(); }
       if (lockOnTargetFlag){ lockOnTarget(); }
       if (strikeFlag){ /* rozpocznij procedurę strzału */ }
       if (reloadFlag){ /* rozpocznij procedurę załadunku + startFlag=false */ }
@@ -280,9 +296,9 @@ void moveRifleManual() {
   motors.motorRifleRotation = payload.fi_xTarget; // ustawianie pozycji serw według nastaw potencjometrów
   motors.motorRifleRaise = payload.ro_yTarget;
 }
-void driveToTarget(DataToReceive startsPayload) {
-  double finalRotation = 180/3.14*atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget); // kąt obrotu o jaki trzeba się obrócić żeby być na lini z celem 
-  double finalDistance = sqrt(pow(payload.fi_xTarget,2) + pow(payload.fi_xTarget,2));
+void moveCarAutonomical(DataToReceive startsPayload) {
+  float finalRotation = 180/3.14*atan2((float)startsPayload.fi_xTarget,(float)startsPayload.ro_yTarget); // kąt obrotu o jaki trzeba się obrócić żeby być na lini z celem 
+  float finalDistance = sqrt(pow(payload.fi_xTarget,2) + pow(payload.fi_xTarget,2));
   
   /*Serial.print("finalRotation: \t");
   Serial.print(finalRotation);
@@ -291,29 +307,53 @@ void driveToTarget(DataToReceive startsPayload) {
   Serial.println();*/
 
   if(currentEqualsFinalRotationFlag){
-    if (distance < (finalDistance - 10)){ // "-10" bo zatrzymanie ma być w odległości 1 metra od celu
-      motors.motorDC1 = 15;
-      motors.motorDC2 = 15;
+    if (distance < (finalDistance /*- 10*/)){ // "-10" bo zatrzymanie ma być w odległości 1 metra od celu
+      motors.motorDC1 = 18;
+      motors.motorDC2 = 18;
     }
     else{
       lockOnTargetFlag = true;
       driveToTargetFlag = false;
     }
-    distance = millis() - (float)timeOfDriving;
+    distance = 10/6/1000 * (millis() - (float)timeOfDriving);
   }
   else if (currentRotation >= (finalRotation - 2) && currentRotation <= (finalRotation + 2)){  // kąt obrotu jest uzyskany
     motors.motorDC1 = 0;
     motors.motorDC2 = 0;
     timeOfDriving = millis();
-    currentEqualsFinalRotationFlag = true; // teoretycznie kod do jazdy (powyższy IF) może być tutaj o ile żyroskop podczas jazdy nie zgłupieje
+    Serial.println("///////////////////////////////////////////////////////////////////////////////////////////////////////////////////");
+    
+    //currentEqualsFinalRotationFlag = true; // teoretycznie kod do jazdy (powyższy IF) może być tutaj o ile żyroskop podczas jazdy nie zgłupieje
   }
   else if ((finalRotation - 2) > currentRotation){  // kąt obrotu jest za mały -> obr. zgodnie z zegarem
-    motors.motorDC1 = 10;
-    motors.motorDC2 = -10;
+    if (abs(finalRotation - currentRotation) > 15){
+      n_soft_stop = 0;
+    }
+    else{
+      if(n_soft_stop < 3){
+        if(millis()- timeOf_soft_stop > 100){
+          timeOf_soft_stop = millis();
+          //n_soft_stop++; 
+        }
+      }
+    }
+    motors.motorDC1 = 16 - n_soft_stop;
+    motors.motorDC2 = -16 + n_soft_stop;
   }
   else if((finalRotation + 2) < currentRotation){  // kąt obrotu jest za duży -> obr. przeciwnie do zegara
-    motors.motorDC1 = -10;
-    motors.motorDC2 = 10;
+    if (abs(finalRotation - currentRotation) > 15){
+      n_soft_stop = 0;
+    }
+    else{
+      if(n_soft_stop < 3){
+        if(millis()- timeOf_soft_stop > 100){
+          timeOf_soft_stop = millis();
+          //n_soft_stop++; 
+        }
+      }
+    }
+    motors.motorDC1 = -16 + n_soft_stop;
+    motors.motorDC2 = 16 - n_soft_stop;
   }
 }
 void calculateCarPos(){
@@ -335,7 +375,7 @@ void lockOnTarget(){
   strikeFlag = true;
   lockOnTargetFlag = false;
 }
-void setPWM(){
+void setPWMs(){
   int temp;
   // sterowanie silnikiem DC1 w zależności od motors.motorDC1
   if(motors.motorDC1 == 0){
@@ -380,6 +420,34 @@ void setPWM(){
   // sterowanie serwem podnośnika działka w zależności od motors.motorRifleRaise
   temp = map(motors.motorRifleRaise, 0, 180, 125, 650); // motors.motorRifleRaise przyjmuje wartości (0 - 90)
   pwm.setPWM(3, 0, temp); 
+
+  //temp = map(payload.yJoy_none, -20, 20, 125, 600); // motors.motorRifleRaise przyjmuje wartości (0 - 90)  
+
+    temp0 = 500;
+  pwm.setPWM(4, 0, temp0); 
+  
+}
+void leftEncoder(){
+  if(startsPayload.manual_auto == 1){
+    if(motors.motorDC1 < 0){
+      leftEncoderPulse --;
+    }
+    else if(motors.motorDC1 > 0){
+      leftEncoderPulse ++;
+    }
+  }
+  leftEncoderPulse ++;
+  Serial.println(leftEncoderPulse);
+}
+void rightEncoder(){
+  if(startsPayload.manual_auto == 1){
+    if(motors.motorDC2 < 0){
+      rightEncoderPulse --;
+    }
+    else if(motors.motorDC2 > 0){
+      rightEncoderPulse ++;
+    }
+  }
 }
 void lastFunction(){
   payload.load_none = 0;

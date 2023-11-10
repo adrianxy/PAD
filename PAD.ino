@@ -244,6 +244,13 @@ void prepareData(){ // tworzy paczkę danych do wysłania
   payload.manual_auto = pad.button[0];
   payload.xJoy_none = map(pad.joy.X, 0, 1023, -20, 21); // prędkości pojazdu x,y
   payload.yJoy_none = map(pad.joy.Y, 0, 1023, 20, -21);
+
+  Serial.print("joy x: \t ");
+  Serial.print(payload.xJoy_none);
+  Serial.print("joy y: \t ");
+  Serial.print(payload.yJoy_none);
+  Serial.println(); 
+
   if (payload.manual_auto == 0){
     payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
     payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 90);
@@ -270,10 +277,10 @@ void receiveData() { //odbiór informacji o położeniu pojazdu
     }
     if (radio.available()) {  // jeśli jest co odebrać do odbierz |jeśli będzie zacinało to tutaj może warto dać while, ale to może opóźnić program|
       radio.read(&carCoords, sizeof(carCoords));
-      Serial.print("carCoords(X,Y): ");
+      /*Serial.print("carCoords(X,Y): ");
       Serial.print(carCoords.X);
       Serial.print("\t");
       Serial.print(carCoords.Y);
-      Serial.println();
+      Serial.println();*/
     }
 }

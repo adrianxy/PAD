@@ -1,3 +1,9 @@
+/*
+Autor: Adrian Nowogrodzki
+Data: 11.11.2023
+Temat: Zdalnie sterowana platforma gąsienicowa strzelająca do zadanego celu
+Wersja środowiska: Arduino IDE 2.1.1
+*/
 #include <SPI.h>
 #include <RF24.h>
 #include <RF24_config.h>
@@ -242,22 +248,22 @@ byte changeCondition(byte x, int num) { // przełącza tryby np. manualny na aut
 }
 void prepareData(){ // tworzy paczkę danych do wysłania
   payload.manual_auto = pad.button[0];
-  payload.xJoy_none = map(pad.joy.X, 0, 1023, -20, 21); // prędkości pojazdu x,y
-  payload.yJoy_none = map(pad.joy.Y, 0, 1023, 20, -21);
-
+  payload.xJoy_none = map(pad.joy.X, 0, 1023, -100, 101); // prędkości pojazdu x,y
+  payload.yJoy_none = map(pad.joy.Y, 0, 1023, 100, -101);
+/*
   Serial.print("joy x: \t ");
   Serial.print(payload.xJoy_none);
   Serial.print("joy y: \t ");
   Serial.print(payload.yJoy_none);
-  Serial.println(); 
+  Serial.println();*/ 
 
   if (payload.manual_auto == 0){
     payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
     payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 90);
   }
   else{
-    payload.fi_xTarget = map(pad.pot.X, 0, 1023, -30, 30);  // położenie celu w [dm]
-    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, -30, 30);
+    payload.fi_xTarget = map(pad.pot.X, 0, 1023, -300, 300);  // położenie celu w [dm]
+    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, -300, 300);
   }
   payload.strike_start = 0;             // w ifPress() może przyjąć '1'
   payload.load_none = 0;                // w ifPress() może przyjąć '1'

@@ -1,6 +1,10 @@
-#include <BMI160.h>
-#include <BMI160Gen.h>
-#include <CurieIMU.h>
+/*
+Autor: Adrian Nowogrodzki
+Data: 11.11.2023
+Temat: Zdalnie sterowana platforma gąsienicowa strzelająca do zadanego celu
+Wersja środowiska: Arduino IDE 2.1.1
+*/
+
 #include <math.h>
 #include <printf.h>
 #include <SPI.h>
@@ -23,15 +27,17 @@
 #define interruptLeftEncoder 2   // | enkoder 400 impulsów na obrót
 #define interruptRightEncoder 3  // | obsługa NRF24
 
+// DEFINICJE FUNCKJI
+ float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);
 
 // OBIEKTY Z INNYCH PLIKÓW
-RF24 radio(CE_NRF24, CSN_NRF24);
-VL53L0X sensor;
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+ RF24 radio(CE_NRF24, CSN_NRF24); // NRF24
+ VL53L0X sensor;   // czujnik 
+ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 
 // STRUKTURY
-struct ReceivedData {
+ struct ReceivedData {
   byte manual_auto;
   int xJoy_none;
   int yJoy_none;
@@ -40,86 +46,90 @@ struct ReceivedData {
   byte strike_start;
   byte load_none;
   byte none_giveFedbackPositon;
-};
+ };
 
-struct CarCoords {
-  double X;
-  double Y;
-};
+ struct CarCoords {
+  float X;
+  float Y;
+ };
 
-struct Time {
+ struct Time {
   unsigned long gapInFeedback = 0;          // timer - co jaki czas można wysłać dane o położeniu
-  unsigned long timeOfGyroMeasurement = 0;  // czas wykonania pomiaru żyroskopem
-  unsigned long dTimeGyroMeasurement = 0;   // czas pamiędzy pomiarami żyroskopem
-  unsigned long timeOfDriving = 0;
-  unsigned long timeOf_soft_stop = 0;
-};
+ };
+
+  struct Obstacle{
+    int firstEdgeAngle;
+    int secondEdgeAngle;
+    float distance;
+  };
 // KLASY
 class Wheel {
-public:
-  Wheel(float radius, int in1, int in2);
-  void setPower(int percent);  // [-100% - 100%]
-  int getTurningDirection();
-  float getDistance();
-  float getVelocity();
-  void increaseOrDecreaseEncoder(int plusOrMinus);
-  void clearStoragedData();
-private:
-  float _radius;  //[cm]
-  int _in1;
-  int _in2;
-  int _speedPercent;
-  float _distance;  // [cm]
-  float _velocity;  // [cm/ms]
-  long _encoderPulsesCount; // może zbędne
-  unsigned long _dTimeOfMeasurement;
-  unsigned long _timeOfMeasurement;
-  const int _pulsesPerOneRotation = 400;
-};
-Wheel::Wheel(float radius, int in1, int in2) {
+  public:
+    Wheel(float radius, int in1, int in2, int pwmPinNum);
+    void setPower(int percent);  // [-100% - 100%]
+    int getTurningDirection();
+    float getDistance();
+    float getVelocity();
+    void increaseOrDecreaseEncoder(int plusOrMinus);
+    void clearStoragedData();
+  private:
+    float _radius;  //[cm]
+    int _in1;
+    int _in2;
+    int _speedPercent;
+    float _distance;  // [cm]
+    float _velocity;  // [cm/ms]
+    long _encoderPulsesCount; // może zbędne
+    unsigned long _dTimeOfMeasurement;
+    unsigned long _timeOfMeasurement;
+    const int _pulsesPerOneRotation = 400;
+    int _pwmPinNum;
+ };
+ Wheel::Wheel(float radius, int in1, int in2, int pwmPinNum) {
   _radius = radius;
   _in1 = in1;
   _in2 = in2;
-}
-void Wheel::setPower(int percent) {
+  _pwmPinNum = pwmPinNum;
+ }
+ void Wheel::setPower(int percent) {
   if (percent == 0) {
     digitalWrite(_in1, LOW);
     digitalWrite(_in2, LOW);
   } else if (percent < 0) {
     digitalWrite(_in1, LOW);
     digitalWrite(_in2, HIGH);
-    pwm.setPWM(0, 0, map(percent, 0, -100, 0, 4095));
+    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, -100, 0, 4095));
   } else {
     digitalWrite(_in1, HIGH);
     digitalWrite(_in2, LOW);
-    pwm.setPWM(0, 0, map(percent, 0, 100, 0, 4095));
+    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, 100, 0, 4095));
   }
-}
-int Wheel::getTurningDirection() {
+ }
+ int Wheel::getTurningDirection() {
   if (_speedPercent < 0) {
     return (-1);
   } else if (_speedPercent > 0) {
     return (1);
   };
-}
-float Wheel::getDistance() {
+ }
+ float Wheel::getDistance() {
   return (_distance);
-}
-float Wheel::getVelocity() {
+ }
+ float Wheel::getVelocity() {
   if (_dTimeOfMeasurement != 0) {
     _velocity = 2 * M_PI * _radius / _dTimeOfMeasurement;
   } else {
     _velocity = 0;
   }
   return (_velocity);
-}
-void Wheel::increaseOrDecreaseEncoder(int plusOrMinus) {
+ }
+ void Wheel::increaseOrDecreaseEncoder(int plusOrMinus) {
   _dTimeOfMeasurement = millis() - _timeOfMeasurement;
   _timeOfMeasurement = millis();
   _encoderPulsesCount = _encoderPulsesCount + plusOrMinus;
   _distance = _distance + plusOrMinus * 2 * M_PI * _radius / (float)_pulsesPerOneRotation;
-}
-void Wheel::clearStoragedData() {
+ }
+ void Wheel::clearStoragedData() {
   _dTimeOfMeasurement = 0;
   _timeOfMeasurement = 0;
   _encoderPulsesCount = 0;
@@ -128,49 +138,83 @@ void Wheel::clearStoragedData() {
 }
 
 class Rifle {
-public:
+ public:
   Rifle();
   void setYaw(int angle);
   void setPitch(int angle);
   void shoot();
   void reload();
-private: 
-};
-Rifle::Rifle() {
-}
-void Rifle::setYaw(int angle) {
+ private: 
+ };
+ Rifle::Rifle() {
+ }
+ void Rifle::setYaw(int angle) {
   pwm.setPWM(2, 0, map(angle, 0, 180, 125, 650)); // wartości "angle" od 0 - 180 deg
-}
-void Rifle::setPitch(int angle) {
-  pwm.setPWM(2, 0, map(angle, 0, 180, 125, 650)); // wartości "angle" od 0 - 90 deg
-}
-void Rifle::shoot() {
+ }
+ void Rifle::setPitch(int angle) {
+  pwm.setPWM(3, 0, map(angle, 0, 180, 125, 650)); // wartości "angle" od 0 - 90 deg
+ }
+ void Rifle::shoot() {
   /* rozpocznij proceduję strzału*/
-}
-void Rifle::reload() {
+ }
+ void Rifle::reload() {
   /* rozpocznij precedurę załadunku*/
+}
+
+class Radar {
+  public:
+    Radar();
+    void rotate(int angle);
+    float takeMeasurement();
+    void clearData();
+  private:
+    float _distance;
+    int _angle;
+ };
+ Radar::Radar(){
+ }
+ void Radar::rotate(int angle){
+   pwm.setPWM(4, 0,  map(angle, 0, 180, 125, 650));
+ }
+ float Radar::takeMeasurement(){
+   _distance = mapfloat(sensor.readRangeContinuousMillimeters(), 0, 8192, 0, 120);
+   if (sensor.timeoutOccurred()) { Serial.print(" TIMEOUT"); }
+   return(_distance);
+ }
+ void Radar::clearData(){
+   _distance =0;
+   _angle = 0;
 }
 
 
 // OBIEKTY Z TEGO PLIKU
-Wheel leftWheel(3, in1_L298N, in2_L298N);
-Wheel rightWheel(3, in3_L298N, in4_L298N);
-Rifle rifle;
+ Wheel leftWheel(3, in1_L298N, in2_L298N, 0);
+ Wheel rightWheel(3, in3_L298N, in4_L298N, 1);
+ Rifle rifle;
+ Radar radar; 
+
 
 // ZMIENNE
-const byte pipe_address[][6] = { "00001", "00002" };  // adresy kanałów przesyłowych NRF24
-const int i2c_addr = 0x68;                            // adres żyroskopu
-ReceivedData receivedPayload;
-ReceivedData startsPayload;
-CarCoords carCoords;
-Time time;
-bool startFlag;
+ const byte pipe_address[][6] = { "00001", "00002" };  // adresy kanałów przesyłowych NRF24
+ const int i2c_addr = 0x68;                            // adres żyroskopu
+ ReceivedData receivedPayload;
+ ReceivedData startsPayload;
+ CarCoords carCoords;
+ Time time;
+ Obstacle obstacle;
+ bool startFlag;
  bool currentEqualsFinalRotationFlag = false;
  bool driveToTargetFlag = true; // flaga - czy można jechać do celu
  bool lockOnTargetFlag = false; // flaga - czy można namierzyć cel
  bool strikeFlag = false; // flaga - czy można wystrzelić pocisk
  bool reloadFlag = false; // flaga - czy można załadować pocisk
+ float finalRotation;
+ float finalDistance;
+ int tempAngleInLOT;
+ float tempDistanceInLOT, tempBeforeDistanceInLOT;
+ bool searchingFlag = true;
 
+// PROGRAM
 void setup() {
   attachInterrupt(digitalPinToInterrupt(interruptLeftEncoder), leftEncoderInteruptFunction, RISING);
   attachInterrupt(digitalPinToInterrupt(interruptRightEncoder), rightEncoderInteruptFunction, RISING);
@@ -187,18 +231,12 @@ void setup() {
   radio.openReadingPipe(1, pipe_address[1]);
   radio.setPALevel(RF24_PA_MIN);
 
-  BMI160.begin(BMI160GenClass::I2C_MODE, i2c_addr);
-  sensor.setTimeout(1000);
-  while (!sensor.init()) { Serial.println("Failed to detect and initialize sensor!"); }
-  sensor.startContinuous();
-
   pwm.begin();
   pwm.setPWMFreq(60);
 }
 void loop() {
   receiveData();
   action();
-  //calculateCarPosition();
   lastFunction();
 }
 
@@ -250,11 +288,12 @@ void action() {
         }
         if (receivedPayload.none_giveFedbackPositon == 1 && (millis() - time.gapInFeedback >= 500)) {
           time.gapInFeedback = millis();
+          calculateCarPosition();
           giveFeedback();
         }
         if (driveToTargetFlag){ moveCarAutonomical(startsPayload); }
-        //if (lockOnTargetFlag){ lockOnTarget(); }
-        //if (strikeFlag){ /* rozpocznij procedurę strzału */ }
+        if (lockOnTargetFlag){ lockOnTarget(); }
+        if (strikeFlag){ rifle.shoot(); }
         //if (reloadFlag){ /* rozpocznij procedurę załadunku + startFlag=false */ }
       }
       break;
@@ -309,8 +348,8 @@ void moveRifleManual(){
   rifle.setPitch(receivedPayload.ro_yTarget);
 }
 void moveCarAutonomical(ReceivedData startsPayload) {
-  float finalRotation = 180/M_PI*atan2((float)startsPayload.fi_xTarget,(float)startsPayload.ro_yTarget); // [deg] kąt obrotu o jaki trzeba się obrócić żeby być na lini z celem 
-  float finalDistance = sqrt(pow((float)receivedPayload.fi_xTarget,2) + pow((float)receivedPayload.fi_xTarget,2)); // [cm]
+  finalRotation = 180/M_PI*atan2((float)startsPayload.fi_xTarget,(float)startsPayload.ro_yTarget); // [deg] kąt obrotu o jaki trzeba się obrócić żeby być na lini z celem 
+  finalDistance = sqrt(pow((float)receivedPayload.fi_xTarget,2) + pow((float)receivedPayload.fi_xTarget,2)); // [cm]
   
   /*Serial.print("finalRotation: \t");
   Serial.print(finalRotation);
@@ -319,7 +358,7 @@ void moveCarAutonomical(ReceivedData startsPayload) {
   Serial.println();*/
 
   if(currentEqualsFinalRotationFlag){
-    if (leftWheel.getDistance() < (finalDistance /*- 10*/)){ // "-10" bo zatrzymanie ma być w odległości 1 metra od celu
+    if (leftWheel.getDistance() < (finalDistance - 100)){ // "-10" bo zatrzymanie ma być w odległości 1 metra od celu
       leftWheel.setPower(70);
       rightWheel.setPower(70);
     }
@@ -331,7 +370,7 @@ void moveCarAutonomical(ReceivedData startsPayload) {
   }
   else{
     float c = 0.5;  // współczynnik obrotu
-    if(finalRotation > 0){  // zgodnie ze wskazówkami zegare
+    if(finalRotation > 0){  // zgodnie ze wskazówkami zegara
       if(leftWheel.getDistance() >= finalRotation * c){
         leftWheel.setPower(0);
         rightWheel.setPower(0);
@@ -359,20 +398,55 @@ void moveCarAutonomical(ReceivedData startsPayload) {
     }
   }    
 }
-void giveFeedback(){
-  radio.stopListening();                      // sprzestań nasłuchiwać
-  radio.write(&carCoords, sizeof(carCoords)); // wyślij współrzędne pojazdu
-}
-void calculateCarPos() {
-
-  //carCoords.X = sin(mapfloat(currentRotation, -360, 360, -6.28, 6.28)) * distance; // distance będzie zliczał obroty kół z długości PWM
-  //carCoords.Y = cos(mapfloat(currentRotation, -360, 360, -6.28, 6.28)) * distance;
-
+void calculateCarPosition(){
+  if(currentEqualsFinalRotationFlag){
+    carCoords.X = sin(mapfloat(finalRotation, -360, 360, -6.28, 6.28)) * leftWheel.getDistance(); // distance będzie zliczał obroty kół z długości PWM
+    carCoords.Y = cos(mapfloat(finalRotation, -360, 360, -6.28, 6.28)) * rightWheel.getDistance();
+  }
+  else{
+    carCoords.X = 0;
+    carCoords.Y = 0;
+  }
+  
   /*Serial.print("carCoords.X \t");
   Serial.print(carCoords.X);
   Serial.print("\t carCoords.Y \t");
   Serial.print(carCoords.Y);
   Serial.println();*/
+}
+void giveFeedback(){
+  radio.stopListening();                      // sprzestań nasłuchiwać
+  radio.write(&carCoords, sizeof(carCoords)); // wyślij współrzędne pojazdu
+}
+void lockOnTarget(){
+ // namierzanie
+  if(searchingFlag && tempAngleInLOT >= 60 && tempAngleInLOT <= 120){
+    radar.rotate(tempAngleInLOT);
+    tempDistanceInLOT = radar.takeMeasurement();
+    if(tempBeforeDistanceInLOT - tempDistanceInLOT > 20){
+      obstacle.firstEdgeAngle = tempAngleInLOT - 3;
+    }
+    else if(tempDistanceInLOT - tempBeforeDistanceInLOT > 20){
+      obstacle.secondEdgeAngle = tempAngleInLOT - 3;
+      searchingFlag = false;
+    }
+    tempBeforeDistanceInLOT = tempDistanceInLOT;
+    tempAngleInLOT = tempAngleInLOT + 6;
+  }
+  else{
+    tempAngleInLOT = 60;
+  }
+
+ // namierzono
+  if(!searchingFlag){
+    radar.rotate((obstacle.secondEdgeAngle - obstacle.firstEdgeAngle)/2 + obstacle.firstEdgeAngle);
+    obstacle.distance = radar.takeMeasurement();
+    searchingFlag = true;
+    tempAngleInLOT = 60;
+    tempBeforeDistanceInLOT = 0;
+    lockOnTargetFlag = false;
+    strikeFlag = true;
+  }
 }
 void leftEncoderInteruptFunction() {
   if (startsPayload.manual_auto == 1) {

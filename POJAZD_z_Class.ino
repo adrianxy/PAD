@@ -12,20 +12,21 @@ Wersja środowiska: Arduino IDE 2.1.1
 #include <RF24.h>
 #include <VL53L0X.h>
 #include <Adafruit_PWMServoDriver.h>
+#include <Wire.h>
 
 
 // DEFINICJE
-#define in1_L298N 9              // |
-#define in2_L298N 10             // |
+#define in1_L298N 2              // | 10 - 13 w leonardo
+#define in2_L298N 3             // |
 #define in3_L298N 4              // |
 #define in4_L298N 5              // | kontrola obrotów silników DC 1 i 2
 #define CE_NRF24 7               // |
 #define CSN_NRF24 8              // |
 #define MOSI_NRF24 11            // |
 #define MISO_NRF24 12            // |
-#define CSK_NRF24 13             // | obsługa NRF24
-#define interruptLeftEncoder 2   // | enkoder 400 impulsów na obrót
-#define interruptRightEncoder 3  // | obsługa NRF24
+#define CSK_NRF24 13             // | obsługa NRF24 dla UNO
+#define interruptLeftEncoder 0   // | enkoder 1 - 400 impulsów na obrót
+#define interruptRightEncoder 1  // | enkoder 2
 
 // DEFINICJE FUNCKJI
  float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);
@@ -82,7 +83,7 @@ class Wheel {
     long _encoderPulsesCount; // może zbędne
     unsigned long _dTimeOfMeasurement;
     unsigned long _timeOfMeasurement;
-    const int _pulsesPerOneRotation = 400;
+    int _pulsesPerOneRotation = 400;
     int _pwmPinNum;
  };
  Wheel::Wheel(float radius, int in1, int in2, int pwmPinNum) {
@@ -92,17 +93,19 @@ class Wheel {
   _pwmPinNum = pwmPinNum;
  }
  void Wheel::setPower(int percent) {
+   _speedPercent = percent;
   if (percent == 0) {
     digitalWrite(_in1, LOW);
     digitalWrite(_in2, LOW);
+    pwm.setPWM(_pwmPinNum, 0, 0);
   } else if (percent < 0) {
     digitalWrite(_in1, LOW);
     digitalWrite(_in2, HIGH);
-    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, -100, 0, 4095));
+    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, -100, 0, 3800));
   } else {
     digitalWrite(_in1, HIGH);
     digitalWrite(_in2, LOW);
-    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, 100, 0, 4095));
+    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, 100, 0, 3800));
   }
  }
  int Wheel::getTurningDirection() {
@@ -127,7 +130,7 @@ class Wheel {
   _dTimeOfMeasurement = millis() - _timeOfMeasurement;
   _timeOfMeasurement = millis();
   _encoderPulsesCount = _encoderPulsesCount + plusOrMinus;
-  _distance = _distance + plusOrMinus * 2 * M_PI * _radius / (float)_pulsesPerOneRotation;
+  _distance = _distance + (float)plusOrMinus * 2 * M_PI * _radius / (float)_pulsesPerOneRotation;
  }
  void Wheel::clearStoragedData() {
   _dTimeOfMeasurement = 0;
@@ -174,10 +177,10 @@ class Radar {
  Radar::Radar(){
  }
  void Radar::rotate(int angle){
-   pwm.setPWM(4, 0,  map(angle, 0, 180, 125, 650));
+   pwm.setPWM(7, 0,  map(angle, 0, 180, 125, 650));
  }
  float Radar::takeMeasurement(){
-   _distance = mapfloat(sensor.readRangeContinuousMillimeters(), 0, 8192, 0, 120);
+   _distance = sensor.readRangeSingleMillimeters()/10;
    if (sensor.timeoutOccurred()) { Serial.print(" TIMEOUT"); }
    return(_distance);
  }
@@ -204,7 +207,7 @@ class Radar {
  Obstacle obstacle;
  bool startFlag;
  bool currentEqualsFinalRotationFlag = false;
- bool driveToTargetFlag = true; // flaga - czy można jechać do celu
+ bool driveToTargetFlag = false; // flaga - czy można jechać do celu
  bool lockOnTargetFlag = false; // flaga - czy można namierzyć cel
  bool strikeFlag = false; // flaga - czy można wystrzelić pocisk
  bool reloadFlag = false; // flaga - czy można załadować pocisk
@@ -212,12 +215,12 @@ class Radar {
  float finalDistance;
  int tempAngleInLOT;
  float tempDistanceInLOT, tempBeforeDistanceInLOT;
- bool searchingFlag = true;
+ bool searchingFlag = false;
 
 // PROGRAM
 void setup() {
-  attachInterrupt(digitalPinToInterrupt(interruptLeftEncoder), leftEncoderInteruptFunction, RISING);
-  attachInterrupt(digitalPinToInterrupt(interruptRightEncoder), rightEncoderInteruptFunction, RISING);
+  //attachInterrupt(digitalPinToInterrupt(interruptLeftEncoder), leftEncoderInteruptFunction, RISING);
+  //attachInterrupt(digitalPinToInterrupt(interruptRightEncoder), rightEncoderInteruptFunction, RISING);
 
   pinMode(in1_L298N, OUTPUT);
   pinMode(in2_L298N, OUTPUT);
@@ -225,28 +228,62 @@ void setup() {
   pinMode(in4_L298N, OUTPUT);
 
   Serial.begin(9600);
-
+  Wire.begin();
   radio.begin();
   radio.openWritingPipe(pipe_address[0]);
   radio.openReadingPipe(1, pipe_address[1]);
   radio.setPALevel(RF24_PA_MIN);
+
+  /*sensor.setTimeout(500);
+  if (!sensor.init()){
+    Serial.println("sensor cant init");
+  }*/
 
   pwm.begin();
   pwm.setPWMFreq(60);
 }
 void loop() {
   receiveData();
-  action();
-  lastFunction();
+  int serw = map(receivedPayload.fi_xTarget, 0, 180, 2, 8);
+  int powe = map(receivedPayload.ro_yTarget, 0, 90, 125, 650);
+  pwm.setPWM(serw, 0, powe);
+  Serial.print("serwo: ");
+  Serial.print(serw);
+  Serial.print(" power: ");
+  Serial.print(powe);
+  Serial.println();
+  //action();
+  //lastFunction();
+  
+
+
+  /*int serwo, speed;
+  Serial.print("które serwo: ");
+  while(Serial.available() <= 0) {}
+  if (Serial.available() > 0) {
+    serwo = Serial.read();
+  }
+  Serial.print((char)serwo);
+  Serial.print("\t  speed: ");
+  while(Serial.available() <= 0) {}
+  if (Serial.available() > 0) {
+    speed = Serial.read();
+  }
+  Serial.println(speed);*/
+
+  //leftWheel.setPower(30);
+  //rightWheel.setPower(50);
+  //Serial.println(radar.takeMeasurement());
 }
 
 void receiveData() {
   radio.startListening();                                   // nasłuchuj
   while (radio.available()) {                               // dopóki jest co czytać, to
     radio.read(&receivedPayload, sizeof(receivedPayload));  // czytaj, jak przeczytasz to ustaw radio.available na false
+    Serial.println(1);
   }
-
-  /*Serial.print("joy: ");
+/*
+  Serial.print("joy: ");
   Serial.print(receivedPayload.xJoy_none);
   Serial.print("\t");
   Serial.print(receivedPayload.yJoy_none);
@@ -273,6 +310,8 @@ void action() {
   switch (receivedPayload.manual_auto) {
     // MANUALNY
     case 0:
+      leftWheel.clearStoragedData();
+      rightWheel.clearStoragedData();
       moveCarManual();
       moveRifleManual();
       if (receivedPayload.strike_start == 1) { rifle.shoot(); }
@@ -285,6 +324,7 @@ void action() {
         if (!startFlag) {
           startsPayload = receivedPayload;  // gdy dopiero wystartował to zapisuje ustawienia na których będzie działał automat
           startFlag = true;
+          driveToTargetFlag = true;
         }
         if (receivedPayload.none_giveFedbackPositon == 1 && (millis() - time.gapInFeedback >= 500)) {
           time.gapInFeedback = millis();
@@ -292,9 +332,10 @@ void action() {
           giveFeedback();
         }
         if (driveToTargetFlag){ moveCarAutonomical(startsPayload); }
-        if (lockOnTargetFlag){ lockOnTarget(); }
-        if (strikeFlag){ rifle.shoot(); }
+        //if (lockOnTargetFlag){ lockOnTarget(); }
         //if (reloadFlag){ /* rozpocznij procedurę załadunku + startFlag=false */ }
+        //if (strikeFlag){ rifle.shoot(); }
+
       }
       break;
   }
@@ -306,28 +347,28 @@ void moveCarManual() {
   if (receivedPayload.xJoy_none >= 0 && receivedPayload.yJoy_none >= 0) {
     _leftWheelSpeed = max(receivedPayload.xJoy_none, receivedPayload.yJoy_none);
     _rightWheelSpeed = map(receivedPayload.xJoy_none, 0, 100, _leftWheelSpeed, -_leftWheelSpeed);
-    if (receivedPayload.yJoy_none == 0) { _rightWheelSpeed = -_leftWheelSpeed; }
+    if (abs(receivedPayload.yJoy_none) < 2) { _rightWheelSpeed = -_leftWheelSpeed; }
   } 
   else if (receivedPayload.xJoy_none <= 0 && receivedPayload.yJoy_none >= 0) {
     _rightWheelSpeed = max(abs(receivedPayload.xJoy_none), receivedPayload.yJoy_none);
     _leftWheelSpeed = map(receivedPayload.xJoy_none, 0, -100, _rightWheelSpeed, -_rightWheelSpeed);
-    if (receivedPayload.yJoy_none == 0) { _leftWheelSpeed = -_rightWheelSpeed; }
+    if (abs(receivedPayload.yJoy_none) < 2) { _leftWheelSpeed = -_rightWheelSpeed; }
   } 
   else if (receivedPayload.xJoy_none <= 0 && receivedPayload.yJoy_none <= 0) {
     _rightWheelSpeed = min(receivedPayload.xJoy_none, receivedPayload.yJoy_none);
     _leftWheelSpeed = map(receivedPayload.xJoy_none, 0, -100, _rightWheelSpeed, -_rightWheelSpeed);
-    if (receivedPayload.yJoy_none == 0) { _leftWheelSpeed = _rightWheelSpeed; }
+    if (abs(receivedPayload.yJoy_none) < 2) { _leftWheelSpeed = _rightWheelSpeed; }
   } 
   else {
     _leftWheelSpeed = min(-receivedPayload.xJoy_none, receivedPayload.yJoy_none);
     _rightWheelSpeed = map(receivedPayload.xJoy_none, 0, 100, _leftWheelSpeed, -_leftWheelSpeed);
-    if (receivedPayload.yJoy_none == 0) { _rightWheelSpeed = _leftWheelSpeed; }
+    if (abs(receivedPayload.yJoy_none) < 2) { _rightWheelSpeed = _leftWheelSpeed; }
   }
 
   if (abs(_leftWheelSpeed) <= 10) {  // niewrażliwość na wartości joysticka mniejsze od 10%
     _leftWheelSpeed = 0;
   } 
-  else if (abs(_rightWheelSpeed) <= 10) {
+  if (abs(_rightWheelSpeed) <= 10) {
     _rightWheelSpeed = 0;
   }
 
@@ -335,7 +376,7 @@ void moveCarManual() {
   leftWheel.setPower(_leftWheelSpeed);
   rightWheel.setPower(_rightWheelSpeed);
 
-  /*Serial.print("joy:");
+  /*Serial.print("wheel speed:");
   Serial.print("\t");
   Serial.print("\t");
   Serial.print(_leftWheelSpeed);
@@ -346,57 +387,6 @@ void moveCarManual() {
 void moveRifleManual(){
   rifle.setYaw(receivedPayload.fi_xTarget);
   rifle.setPitch(receivedPayload.ro_yTarget);
-}
-void moveCarAutonomical(ReceivedData startsPayload) {
-  finalRotation = 180/M_PI*atan2((float)startsPayload.fi_xTarget,(float)startsPayload.ro_yTarget); // [deg] kąt obrotu o jaki trzeba się obrócić żeby być na lini z celem 
-  finalDistance = sqrt(pow((float)receivedPayload.fi_xTarget,2) + pow((float)receivedPayload.fi_xTarget,2)); // [cm]
-  
-  /*Serial.print("finalRotation: \t");
-  Serial.print(finalRotation);
-  Serial.print("\t finalDistance: \t");
-  Serial.print(finalDistance);
-  Serial.println();*/
-
-  if(currentEqualsFinalRotationFlag){
-    if (leftWheel.getDistance() < (finalDistance - 100)){ // "-10" bo zatrzymanie ma być w odległości 1 metra od celu
-      leftWheel.setPower(70);
-      rightWheel.setPower(70);
-    }
-    else{
-      lockOnTargetFlag = true;
-      driveToTargetFlag = false;
-      currentEqualsFinalRotationFlag = false;
-    }
-  }
-  else{
-    float c = 0.5;  // współczynnik obrotu
-    if(finalRotation > 0){  // zgodnie ze wskazówkami zegara
-      if(leftWheel.getDistance() >= finalRotation * c){
-        leftWheel.setPower(0);
-        rightWheel.setPower(0);
-        leftWheel.clearStoragedData();
-        rightWheel.clearStoragedData();
-        currentEqualsFinalRotationFlag = true;
-      }
-      else{
-        leftWheel.setPower(70);
-        rightWheel.setPower(-70);
-      }    
-    }
-    else if(finalRotation < 0){ // przeciwnie do wskazówek zegara
-      if(leftWheel.getDistance() <= finalRotation * c){
-        leftWheel.setPower(0);
-        rightWheel.setPower(0);
-        leftWheel.clearStoragedData();
-        rightWheel.clearStoragedData();
-        currentEqualsFinalRotationFlag = true;
-      }
-      else{
-        leftWheel.setPower(-70);
-        rightWheel.setPower(70);
-      }
-    }
-  }    
 }
 void calculateCarPosition(){
   if(currentEqualsFinalRotationFlag){
@@ -416,12 +406,69 @@ void calculateCarPosition(){
 }
 void giveFeedback(){
   radio.stopListening();                      // sprzestań nasłuchiwać
+  //carCoords.X = 21; // dodatek
+  //Serial.println("wysłano"); // dodatek
   radio.write(&carCoords, sizeof(carCoords)); // wyślij współrzędne pojazdu
+}
+void moveCarAutonomical(ReceivedData startsPayload) {
+  finalRotation = 180/M_PI*(float)atan2((double)startsPayload.fi_xTarget,(double)startsPayload.ro_yTarget); // [deg] kąt obrotu o jaki trzeba się obrócić żeby być na lini z celem 
+  finalDistance = (float)sqrt(pow((double)receivedPayload.fi_xTarget,2) + pow((double)receivedPayload.ro_yTarget,2)); // [cm]
+  
+  /*Serial.print("finalRotation: \t");
+  Serial.print(finalRotation);
+  Serial.print("\t finalDistance: \t");
+  Serial.print(finalDistance);
+  Serial.println();*/
+
+  if(currentEqualsFinalRotationFlag){
+    if (leftWheel.getDistance() < (finalDistance - 100)){ // "-10" bo zatrzymanie ma być w odległości 1 metra od celu
+      leftWheel.setPower(70);
+      rightWheel.setPower(70);
+    }
+    else{
+      leftWheel.setPower(0);
+      rightWheel.setPower(0);
+      lockOnTargetFlag = true;
+      driveToTargetFlag = false;
+      currentEqualsFinalRotationFlag = false;
+      searchingFlag = true;
+    }
+  }
+  else{
+    float c = 0.33;  // współczynnik obrotu
+    if(finalRotation > 0){  // zgodnie ze wskazówkami zegara
+      if(leftWheel.getDistance() >= finalRotation * c){
+        leftWheel.setPower(0);
+        rightWheel.setPower(0);
+        leftWheel.clearStoragedData();
+        rightWheel.clearStoragedData();
+        currentEqualsFinalRotationFlag = true;
+      }
+      else{
+        leftWheel.setPower(90);
+        rightWheel.setPower(-100);
+      }    
+    }
+    else if(finalRotation < 0){ // przeciwnie do wskazówek zegara
+      if(leftWheel.getDistance() <= finalRotation * c){
+        leftWheel.setPower(0);
+        rightWheel.setPower(0);
+        leftWheel.clearStoragedData();
+        rightWheel.clearStoragedData();
+        currentEqualsFinalRotationFlag = true;
+      }
+      else{
+        leftWheel.setPower(-100);
+        rightWheel.setPower(90);
+      }
+    }
+  }    
 }
 void lockOnTarget(){
  // namierzanie
   if(searchingFlag && tempAngleInLOT >= 60 && tempAngleInLOT <= 120){
     radar.rotate(tempAngleInLOT);
+    delay(100);
     tempDistanceInLOT = radar.takeMeasurement();
     if(tempBeforeDistanceInLOT - tempDistanceInLOT > 20){
       obstacle.firstEdgeAngle = tempAngleInLOT - 3;
@@ -433,22 +480,24 @@ void lockOnTarget(){
     tempBeforeDistanceInLOT = tempDistanceInLOT;
     tempAngleInLOT = tempAngleInLOT + 6;
   }
-  else{
+  /*else{
     tempAngleInLOT = 60;
-  }
+  }*/
 
  // namierzono
   if(!searchingFlag){
     radar.rotate((obstacle.secondEdgeAngle - obstacle.firstEdgeAngle)/2 + obstacle.firstEdgeAngle);
+    delay(500);
     obstacle.distance = radar.takeMeasurement();
     searchingFlag = true;
     tempAngleInLOT = 60;
     tempBeforeDistanceInLOT = 0;
     lockOnTargetFlag = false;
-    strikeFlag = true;
+    reloadFlag = true;
   }
 }
 void leftEncoderInteruptFunction() {
+  Serial.println("1");
   if (startsPayload.manual_auto == 1) {
     if (leftWheel.getTurningDirection() < 0) {
       leftWheel.increaseOrDecreaseEncoder(-1);
@@ -460,6 +509,7 @@ void leftEncoderInteruptFunction() {
   //Serial.println("przerwanie koło lewe");
 }
 void rightEncoderInteruptFunction() {
+  Serial.println("2");
   if (startsPayload.manual_auto == 1) {
     if (rightWheel.getTurningDirection() < 0) {
       rightWheel.increaseOrDecreaseEncoder(-1);

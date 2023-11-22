@@ -145,14 +145,14 @@ void ifPress(int pButt, unsigned long & delayButt, byte num, byte cCnum){ // rea
   }
 }
 void ifShift(){ // odczytuje ruch joysticka i potencjometrów
-  if ((abs(pad.joy.X - analogRead(pJoyX)) > 20) || (abs(pad.joy.Y - analogRead(pJoyY)) > 20)) {  // obsługa joystick'a
+  if ((abs(pad.joy.X - analogRead(pJoyX)) > 10) || (abs(pad.joy.Y - analogRead(pJoyY)) > 10)) {  // obsługa joystick'a
     pad.joy.X = analogRead(pJoyX);  // przechowuje obency stan potencjometrów
     pad.joy.Y = analogRead(pJoyY);
     print(lastButt);
     prepareData();
     sendData();
   }
-  if ((abs(pad.pot.X - analogRead(pPotX)) > 20) || (abs(pad.pot.Y - analogRead(pPotY)) > 20)) {  // obsługa potencjometrów
+  if ((abs(pad.pot.X - analogRead(pPotX)) > 10) || (abs(pad.pot.Y - analogRead(pPotY)) > 10)) {  // obsługa potencjometrów
     pad.pot.X = analogRead(pPotX);  // przechowuje obency stan potencjometrów
     pad.pot.Y = analogRead(pPotY);
     print(lastButt);
@@ -160,16 +160,39 @@ void ifShift(){ // odczytuje ruch joysticka i potencjometrów
     sendData();
   }
 }
-void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia pojazdu (tylko w automacie)
-  if(payload.manual_auto == 1 && now - gapInFeedback >= 500){   // co pół sekundy pobiera info o położeniu pojazdu
-    gapInFeedback = now;
-    prepareData();
-    payload.none_giveFedbackPositon = 1;  // ustawia na '1' bajt który pojazd interpretuje jako gotowość pada do odbioru dancyh 
-    sendData();
-    receiveData();
-    payload.none_giveFedbackPositon = 0;
-    if (lastButt == 1 && pad.button[1] == 1){ print(lastButt); }
+void prepareData(){ // tworzy paczkę danych do wysłania
+  payload.manual_auto = pad.button[0];
+  payload.xJoy_none = map(pad.joy.X, 0, 1023, -100, 101); // prędkości pojazdu x,y
+  payload.yJoy_none = map(pad.joy.Y, 0, 1023, 100, -101);
+  if(payload.xJoy_none == 101){ payload.xJoy_none = 100;}
+  if(payload.yJoy_none == -101){ payload.yJoy_none = -100;}
+/*
+  Serial.print("joy x: ");
+  Serial.print(payload.xJoy_none);
+  Serial.print("\t");
+  Serial.print("joy y: ");
+  Serial.print(payload.yJoy_none);
+  Serial.println();*/
+
+  if (payload.manual_auto == 0){
+    payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
+    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 90);
   }
+  else{
+    payload.fi_xTarget = 10 * map(pad.pot.X, 0, 1023, -30, 30);  // położenie celu w [dm]
+    payload.ro_yTarget = 10 * map(pad.pot.Y, 0, 1023, -30, 30);
+  }
+  payload.strike_start = 0;             // w ifPress() może przyjąć '1'
+  payload.load_none = 0;                // w ifPress() może przyjąć '1'
+  payload.none_giveFedbackPositon = 0;  // w giveMeCarPosition() może przyjąć '1'
+/*
+  Serial.print("fi: ");
+  Serial.print(payload.fi_xTarget);
+  Serial.print("\t");
+  Serial.print("ro: ");
+  Serial.print(payload.ro_yTarget);
+  Serial.println();   
+  Serial.println();*/  
 }
 void print(int x) { // wyświetlanie na LCD
   switch (x) {
@@ -186,10 +209,14 @@ void print(int x) { // wyświetlanie na LCD
         lcd.clear();
         if (pad.button[1] == 0) {
           lcd.setCursor(0, 0);
-          lcd.print("Katy dziala");
+          lcd.print("Katy dziala[deg]");
           lcd.setCursor(0, 1);
-          lcd.print(map(pad.pot.X, 0, 1023, 0, 90));
-          lcd.setCursor(5, 1);
+          lcd.print("yaw:");
+          lcd.setCursor(4, 1);
+          lcd.print(map(pad.pot.X, 0, 1023, -90, 90));
+          lcd.setCursor(8, 1);
+          lcd.print("pitch:");
+          lcd.setCursor(14, 1);
           lcd.print(map(pad.pot.Y, 0, 1023, 0, 90));
         } else {
           lcd.setCursor(0, 0);
@@ -203,17 +230,29 @@ void print(int x) { // wyświetlanie na LCD
           lcd.setCursor(0, 0);
           lcd.print("Polozenie celu");
           lcd.setCursor(0, 1);
+          lcd.print("x:");
+          lcd.setCursor(2, 1);
           lcd.print((map(pad.pot.X, 0, 1023, -30, 30)));
           lcd.setCursor(5, 1);
+          lcd.print("y:");
+          lcd.setCursor(7, 1);
           lcd.print((map(pad.pot.Y, 0, 1023, -30, 30)));
+          lcd.setCursor(11, 1);
+          lcd.print("[dm]");
         } else {
           if (lastButt == 1){lcd.setCursor(0, 1); lcd.print("                ");} else{ lcd.clear();}
           lcd.setCursor(0, 0);
           lcd.print("Polozenie czolgu");
           lcd.setCursor(0, 1);
+          lcd.print("x:");
+          lcd.setCursor(2, 1);
           lcd.print((int)carCoords.X);
           lcd.setCursor(5, 1);
+          lcd.print("y:");
+          lcd.setCursor(7, 1);
           lcd.print((int)carCoords.Y);
+          lcd.setCursor(11, 1);
+          lcd.print("[dm]");
         }
       }
       break;
@@ -239,35 +278,16 @@ void print(int x) { // wyświetlanie na LCD
   }
   lastButt = x;
 }
-byte changeCondition(byte x, int num) { // przełącza tryby np. manualny na auto
-  x++;
-  if (x == num) {  // num trybów
-    x = 0;
+void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia pojazdu (tylko w automacie)
+  if(payload.manual_auto == 1 && now - gapInFeedback >= 500){   // co pół sekundy pobiera info o położeniu pojazdu
+    gapInFeedback = now;
+    prepareData();
+    payload.none_giveFedbackPositon = 1;  // ustawia na '1' bajt który pojazd interpretuje jako gotowość pada do odbioru dancyh 
+    sendData();
+    receiveData();
+    payload.none_giveFedbackPositon = 0;
+    if (lastButt == 1 && pad.button[1] == 1){ print(lastButt); }
   }
-  return x;
-}
-void prepareData(){ // tworzy paczkę danych do wysłania
-  payload.manual_auto = pad.button[0];
-  payload.xJoy_none = map(pad.joy.X, 0, 1023, -100, 101); // prędkości pojazdu x,y
-  payload.yJoy_none = map(pad.joy.Y, 0, 1023, 100, -101);
-/*
-  Serial.print("joy x: \t ");
-  Serial.print(payload.xJoy_none);
-  Serial.print("joy y: \t ");
-  Serial.print(payload.yJoy_none);
-  Serial.println();*/ 
-
-  if (payload.manual_auto == 0){
-    payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
-    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 90);
-  }
-  else{
-    payload.fi_xTarget = map(pad.pot.X, 0, 1023, -300, 300);  // położenie celu w [dm]
-    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, -300, 300);
-  }
-  payload.strike_start = 0;             // w ifPress() może przyjąć '1'
-  payload.load_none = 0;                // w ifPress() może przyjąć '1'
-  payload.none_giveFedbackPositon = 0;  // w giveMeCarPosition() może przyjąć '1'
 }
 void sendData() { // wysyłanie paczki danych
     radio.stopListening();
@@ -289,4 +309,11 @@ void receiveData() { //odbiór informacji o położeniu pojazdu
       Serial.print(carCoords.Y);
       Serial.println();*/
     }
+}
+byte changeCondition(byte x, int num) { // przełącza tryby np. manualny na auto
+  x++;
+  if (x == num) {  // num trybów
+    x = 0;
+  }
+  return x;
 }

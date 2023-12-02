@@ -61,6 +61,7 @@ Wersja środowiska: Arduino IDE 2.1.1
   struct Obstacle{
     int firstEdgeAngle;
     int secondEdgeAngle;
+    int centerAngle;
     float distance;
   };
 // KLASY
@@ -209,6 +210,7 @@ class Radar {
  bool currentEqualsFinalRotationFlag = false;
  bool driveToTargetFlag = false; // flaga - czy można jechać do celu
  bool lockOnTargetFlag = false; // flaga - czy można namierzyć cel
+ bool moveRifleFlag = false;
  bool strikeFlag = false; // flaga - czy można wystrzelić pocisk
  bool reloadFlag = false; // flaga - czy można załadować pocisk
  float finalRotation;
@@ -255,24 +257,6 @@ void loop() {
   //action();
   //lastFunction();
   
-
-
-  /*int serwo, speed;
-  Serial.print("które serwo: ");
-  while(Serial.available() <= 0) {}
-  if (Serial.available() > 0) {
-    serwo = Serial.read();
-  }
-  Serial.print((char)serwo);
-  Serial.print("\t  speed: ");
-  while(Serial.available() <= 0) {}
-  if (Serial.available() > 0) {
-    speed = Serial.read();
-  }
-  Serial.println(speed);*/
-
-  //leftWheel.setPower(30);
-  //rightWheel.setPower(50);
   //Serial.println(radar.takeMeasurement());
 }
 
@@ -282,7 +266,7 @@ void receiveData() {
     radio.read(&receivedPayload, sizeof(receivedPayload));  // czytaj, jak przeczytasz to ustaw radio.available na false
     Serial.println(1);
   }
-/*
+ /*
   Serial.print("joy: ");
   Serial.print(receivedPayload.xJoy_none);
   Serial.print("\t");
@@ -314,8 +298,9 @@ void action() {
       rightWheel.clearStoragedData();
       moveCarManual();
       moveRifleManual();
+      if (receivedPayload.load_none == 1) { rifle.reload(); }      
       if (receivedPayload.strike_start == 1) { rifle.shoot(); }
-      if (receivedPayload.load_none == 1) { rifle.reload(); }
+
       startFlag = false;  // resetuje tryb autonomiczny
       break;
     // AUTONOMICZNY
@@ -333,6 +318,7 @@ void action() {
         }
         if (driveToTargetFlag){ moveCarAutonomical(startsPayload); }
         //if (lockOnTargetFlag){ lockOnTarget(); }
+        //if (moveRifleFlag) { moveRifleAutonomical(); }
         //if (reloadFlag){ /* rozpocznij procedurę załadunku + startFlag=false */ }
         //if (strikeFlag){ rifle.shoot(); }
 
@@ -445,7 +431,7 @@ void moveCarAutonomical(ReceivedData startsPayload) {
         currentEqualsFinalRotationFlag = true;
       }
       else{
-        leftWheel.setPower(90);
+        leftWheel.setPower(100);
         rightWheel.setPower(-100);
       }    
     }
@@ -459,7 +445,7 @@ void moveCarAutonomical(ReceivedData startsPayload) {
       }
       else{
         leftWheel.setPower(-100);
-        rightWheel.setPower(90);
+        rightWheel.setPower(100);
       }
     }
   }    
@@ -486,15 +472,22 @@ void lockOnTarget(){
 
  // namierzono
   if(!searchingFlag){
-    radar.rotate((obstacle.secondEdgeAngle - obstacle.firstEdgeAngle)/2 + obstacle.firstEdgeAngle);
+    obstacle.centerAngle = (obstacle.secondEdgeAngle - obstacle.firstEdgeAngle)/2 + obstacle.firstEdgeAngle; 
+    radar.rotate(obstacle.centerAngle);
     delay(500);
     obstacle.distance = radar.takeMeasurement();
     searchingFlag = true;
     tempAngleInLOT = 60;
     tempBeforeDistanceInLOT = 0;
     lockOnTargetFlag = false;
-    reloadFlag = true;
+    moveRifleFlag = true;
   }
+}
+void moveRifleAutonomical(){
+  // obliczanie kątów z tw. kosinusów
+  //rifle.setYaw();
+  //rifle.setPitch();
+  //po sekundzie ustawić flage reloadFlag = true oraz moveRifleFlag = false;
 }
 void leftEncoderInteruptFunction() {
   Serial.println("1");

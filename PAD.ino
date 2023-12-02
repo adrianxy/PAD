@@ -166,7 +166,7 @@ void prepareData(){ // tworzy paczkę danych do wysłania
   payload.yJoy_none = map(pad.joy.Y, 0, 1023, 100, -101);
   if(payload.xJoy_none == 101){ payload.xJoy_none = 100;}
   if(payload.yJoy_none == -101){ payload.yJoy_none = -100;}
-/*
+ /*
   Serial.print("joy x: ");
   Serial.print(payload.xJoy_none);
   Serial.print("\t");
@@ -185,7 +185,7 @@ void prepareData(){ // tworzy paczkę danych do wysłania
   payload.strike_start = 0;             // w ifPress() może przyjąć '1'
   payload.load_none = 0;                // w ifPress() może przyjąć '1'
   payload.none_giveFedbackPositon = 0;  // w giveMeCarPosition() może przyjąć '1'
-/*
+ /*
   Serial.print("fi: ");
   Serial.print(payload.fi_xTarget);
   Serial.print("\t");

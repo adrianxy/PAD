@@ -130,10 +130,12 @@ void ifPress(int pButt, unsigned long & delayButt, byte num, byte cCnum){ // rea
     pad.button[num] = changeCondition(pad.button[num], cCnum);  // pad.button[num] = stan (manualny/automat | M-pulpit1/pulpit2 | A-pulpit1/pulpit2)
     
     if (pButt == pButt3 && pad.button[0] == 0 && lastButt == 1 && pad.button[1] == 1){  // gdy włączono M-ładowanie 
+      payload.strike_start = 0;
       payload.load_none = 1;
       sendData();               // wysyła '1' jako load_none
     }
     else if (pButt == pButt2){  // gdy włączono M-strzał/A-start
+      payload.load_none = 0;
       payload.strike_start = 1;
       sendData();               // wysyła '1' jako strike_start
     }
@@ -176,7 +178,7 @@ void prepareData(){ // tworzy paczkę danych do wysłania
 
   if (payload.manual_auto == 0){
     payload.fi_xTarget = map(pad.pot.X, 0, 1023, 0, 180); // kąty działka ro i fi 
-    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 0, 90);
+    payload.ro_yTarget = map(pad.pot.Y, 0, 1023, 70, 110);
   }
   else{
     payload.fi_xTarget = 10 * map(pad.pot.X, 0, 1023, -30, 30);  // położenie celu w [dm]
@@ -214,10 +216,10 @@ void print(int x) { // wyświetlanie na LCD
           lcd.print("yaw:");
           lcd.setCursor(4, 1);
           lcd.print(map(pad.pot.X, 0, 1023, -90, 90));
-          lcd.setCursor(8, 1);
+          lcd.setCursor(7, 1);
           lcd.print("pitch:");
-          lcd.setCursor(14, 1);
-          lcd.print(map(pad.pot.Y, 0, 1023, 0, 90));
+          lcd.setCursor(13, 1);
+          lcd.print(map(pad.pot.Y, 0, 1023, -20, 20));
         } else {
           lcd.setCursor(0, 0);
           lcd.print("Ladowanie kuli");
@@ -279,7 +281,7 @@ void print(int x) { // wyświetlanie na LCD
   lastButt = x;
 }
 void giveMeCarPosition(){ // wysyła rządanie o chęci odbioru położenia pojazdu (tylko w automacie)
-  if(payload.manual_auto == 1 && now - gapInFeedback >= 500){   // co pół sekundy pobiera info o położeniu pojazdu
+  if(payload.manual_auto == 1 && (now - gapInFeedback) >= 500){   // co pół sekundy pobiera info o położeniu pojazdu
     gapInFeedback = now;
     prepareData();
     payload.none_giveFedbackPositon = 1;  // ustawia na '1' bajt który pojazd interpretuje jako gotowość pada do odbioru dancyh 

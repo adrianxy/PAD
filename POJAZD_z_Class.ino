@@ -27,6 +27,8 @@ Wersja środowiska: Arduino IDE 2.1.1
 #define CSK_NRF24 13             // | obsługa NRF24 dla UNO
 #define interruptLeftEncoder 0   // | enkoder 1 - 400 impulsów na obrót
 #define interruptRightEncoder 1  // | enkoder 2
+#define contactorLoaded 9
+#define contactorFired 10
 
 // DEFINICJE FUNCKJI
  float mapfloat(float x, float in_min, float in_max, float out_min, float out_max);
@@ -56,6 +58,7 @@ Wersja środowiska: Arduino IDE 2.1.1
 
  struct Time {
   unsigned long gapInFeedback = 0;          // timer - co jaki czas można wysłać dane o położeniu
+  unsigned long gapInReloadStrike = 0;
  };
 
   struct Obstacle{
@@ -102,11 +105,11 @@ class Wheel {
   } else if (percent < 0) {
     digitalWrite(_in1, LOW);
     digitalWrite(_in2, HIGH);
-    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, -100, 0, 3800));
+    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, -100, 0, 4000));
   } else {
     digitalWrite(_in1, HIGH);
     digitalWrite(_in2, LOW);
-    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, 100, 0, 3800));
+    pwm.setPWM(_pwmPinNum, 0, map(percent, 0, 100, 0, 4000));
   }
  }
  int Wheel::getTurningDirection() {
@@ -148,22 +151,52 @@ class Rifle {
   void setPitch(int angle);
   void shoot();
   void reload();
+  bool isBulletLoaded();
+  bool isBulletFired();
  private: 
+  bool _bulletIsLoaded = false;
+  bool _bulletIsFired = false;
  };
  Rifle::Rifle() {
  }
  void Rifle::setYaw(int angle) {
-  pwm.setPWM(2, 0, map(angle, 0, 180, 125, 650)); // wartości "angle" od 0 - 180 deg
+  pwm.setPWM(2, 0, map(angle, 0, 180, 650, 125)); // wartości "angle" od 0 - 180 deg
  }
  void Rifle::setPitch(int angle) {
   pwm.setPWM(3, 0, map(angle, 0, 180, 125, 650)); // wartości "angle" od 0 - 90 deg
  }
- void Rifle::shoot() {
-  /* rozpocznij proceduję strzału*/
- }
  void Rifle::reload() {
-  /* rozpocznij precedurę załadunku*/
-}
+   pwm.setPWM(4, 0, 190); // naciąganie kołowrotka
+   //if(digitalRead(contactorLoaded) == 0){
+   delay(2000);
+     pwm.setPWM(5, 0, 300); // blokada sprężyn
+     pwm.setPWM(6, 0, 434); // otwarcie magazynka
+    delay(1000);
+     pwm.setPWM(4, 0, 650); // odiąganie kołowrotka
+   //}
+ }
+ void Rifle::shoot() {
+     pwm.setPWM(6, 0, 504); // zamknięcie magazynka (dla picu)
+     pwm.setPWM(5, 0, 125); // odbokowanie sprężyn
+ }
+ bool Rifle::isBulletLoaded() {
+   if(digitalRead(contactorLoaded) == 0){
+     _bulletIsLoaded = true;
+   }
+   else{
+     _bulletIsLoaded = false;
+   }
+   return _bulletIsLoaded;
+ }
+ bool Rifle::isBulletFired() {
+    if(digitalRead(contactorFired) == 0){
+      _bulletIsFired = true;
+    }
+    else{
+      _bulletIsFired = false;
+    }
+   return _bulletIsFired;
+ }
 
 class Radar {
   public:
@@ -178,11 +211,11 @@ class Radar {
  Radar::Radar(){
  }
  void Radar::rotate(int angle){
-   pwm.setPWM(7, 0,  map(angle, 0, 180, 125, 650));
+   pwm.setPWM(7, 0,  map(angle, 0, 180, 650, 125));
  }
  float Radar::takeMeasurement(){
    _distance = sensor.readRangeSingleMillimeters()/10;
-   if (sensor.timeoutOccurred()) { Serial.print(" TIMEOUT"); }
+   if (sensor.timeoutOccurred()) { /*Serial.print(" TIMEOUT");*/ }
    return(_distance);
  }
  void Radar::clearData(){
@@ -218,16 +251,19 @@ class Radar {
  int tempAngleInLOT;
  float tempDistanceInLOT, tempBeforeDistanceInLOT;
  bool searchingFlag = false;
+ bool canSartProgram = false;
 
 // PROGRAM
 void setup() {
-  //attachInterrupt(digitalPinToInterrupt(interruptLeftEncoder), leftEncoderInteruptFunction, RISING);
-  //attachInterrupt(digitalPinToInterrupt(interruptRightEncoder), rightEncoderInteruptFunction, RISING);
+  attachInterrupt(digitalPinToInterrupt(interruptLeftEncoder), leftEncoderInteruptFunction, RISING);
+  attachInterrupt(digitalPinToInterrupt(interruptRightEncoder), rightEncoderInteruptFunction, RISING);
 
   pinMode(in1_L298N, OUTPUT);
   pinMode(in2_L298N, OUTPUT);
   pinMode(in3_L298N, OUTPUT);
   pinMode(in4_L298N, OUTPUT);
+  pinMode(contactorLoaded, INPUT_PULLUP);
+  pinMode(contactorFired, INPUT_PULLUP);
 
   Serial.begin(9600);
   Wire.begin();
@@ -243,20 +279,49 @@ void setup() {
 
   pwm.begin();
   pwm.setPWMFreq(60);
+
+
+ // ustawianie PWMów:
+  pwm.setPWM(0, 0, 0);  // L298N
+  pwm.setPWM(1, 0, 0);  // L298N
+  pwm.setPWM(2, 0, 375); // działko yaw
+  delay(1000);
+  pwm.setPWM(3, 0, 395); // działko pitch v1
+  delay(1500);
+  pwm.setPWM(3, 0, 375); // działko pitch v2
+  delay(300);
+  pwm.setPWM(5, 0, 125);  // blokada sprężyn
+  delay(1000);
+  pwm.setPWM(4, 0, 650);  // kołowrotek
+  delay(2000);
+  pwm.setPWM(6, 0, 504);  // magazynek
+  delay(1000);
+  //pwm.setPWM(7, 0, 375); // obrót sensora
+  //delay(1500);
+  
 }
+
 void loop() {
   receiveData();
-  int serw = map(receivedPayload.fi_xTarget, 0, 180, 2, 8);
-  int powe = map(receivedPayload.ro_yTarget, 0, 90, 125, 650);
-  pwm.setPWM(serw, 0, powe);
-  Serial.print("serwo: ");
-  Serial.print(serw);
-  Serial.print(" power: ");
-  Serial.print(powe);
-  Serial.println();
-  //action();
-  //lastFunction();
+  if(canSartProgram){
+   action();
+  }
+  lastFunction();
   
+  /*
+  int powe = 70;
+  int serw = map(receivedPayload.fi_xTarget, 0, 180, 4, 6);
+  serw = 4;
+  powe = map(receivedPayload.ro_yTarget, 70, 110, 125, 650);
+  if(receivedPayload.strike_start == 1){
+    pwm.setPWM(serw, 0, powe);
+    Serial.print("serwo: ");
+    Serial.print(serw);
+    Serial.print(" power: ");
+    Serial.print(powe);
+    Serial.println();
+  }
+  */
   //Serial.println(radar.takeMeasurement());
 }
 
@@ -264,7 +329,8 @@ void receiveData() {
   radio.startListening();                                   // nasłuchuj
   while (radio.available()) {                               // dopóki jest co czytać, to
     radio.read(&receivedPayload, sizeof(receivedPayload));  // czytaj, jak przeczytasz to ustaw radio.available na false
-    Serial.println(1);
+    //Serial.println(1);
+    canSartProgram = true;
   }
  /*
   Serial.print("joy: ");
@@ -299,10 +365,14 @@ void action() {
       moveCarManual();
       moveRifleManual();
       if (receivedPayload.load_none == 1) { rifle.reload(); }      
-      if (receivedPayload.strike_start == 1) { rifle.shoot(); }
-
+      if (receivedPayload.strike_start == 1) { 
+        //if(rifle.isBulletLoaded() == true){
+          rifle.shoot();
+        //} 
+      }
       startFlag = false;  // resetuje tryb autonomiczny
       break;
+
     // AUTONOMICZNY
     case 1:
       if (receivedPayload.strike_start == 1 || startFlag) {
@@ -317,11 +387,25 @@ void action() {
           giveFeedback();
         }
         if (driveToTargetFlag){ moveCarAutonomical(startsPayload); }
-        //if (lockOnTargetFlag){ lockOnTarget(); }
-        //if (moveRifleFlag) { moveRifleAutonomical(); }
-        //if (reloadFlag){ /* rozpocznij procedurę załadunku + startFlag=false */ }
-        //if (strikeFlag){ rifle.shoot(); }
-
+        /*if (lockOnTargetFlag){ lockOnTarget(); }
+        if (moveRifleFlag) { moveRifleAutonomical(); }
+        if (reloadFlag){
+          rifle.reload();
+          if(rifle.isBulletLoaded() == true){
+            time.gapInReloadStrike = millis();
+            strikeFlag = true;
+            reloadFlag = false;
+          } 
+        }
+        if (strikeFlag){ 
+          if((millis() - time.gapInReloadStrike >= 2000)){
+            rifle.shoot();
+          }
+          if(rifle.isBulletFired() == true){
+            strikeFlag = false;
+            startFlag = false;
+          }
+        }*/
       }
       break;
   }
@@ -407,7 +491,7 @@ void moveCarAutonomical(ReceivedData startsPayload) {
   Serial.println();*/
 
   if(currentEqualsFinalRotationFlag){
-    if (leftWheel.getDistance() < (finalDistance - 100)){ // "-10" bo zatrzymanie ma być w odległości 1 metra od celu
+    if (leftWheel.getDistance() < (finalDistance - 70)){ // "-70" bo zatrzymanie ma być w odległości 0.7 metra od celu
       leftWheel.setPower(70);
       rightWheel.setPower(70);
     }
@@ -490,7 +574,7 @@ void moveRifleAutonomical(){
   //po sekundzie ustawić flage reloadFlag = true oraz moveRifleFlag = false;
 }
 void leftEncoderInteruptFunction() {
-  Serial.println("1");
+  //Serial.println("1");
   if (startsPayload.manual_auto == 1) {
     if (leftWheel.getTurningDirection() < 0) {
       leftWheel.increaseOrDecreaseEncoder(-1);
@@ -502,7 +586,7 @@ void leftEncoderInteruptFunction() {
   //Serial.println("przerwanie koło lewe");
 }
 void rightEncoderInteruptFunction() {
-  Serial.println("2");
+  //Serial.println("2");
   if (startsPayload.manual_auto == 1) {
     if (rightWheel.getTurningDirection() < 0) {
       rightWheel.increaseOrDecreaseEncoder(-1);
